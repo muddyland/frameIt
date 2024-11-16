@@ -1,0 +1,65 @@
+{% extends 'admin_main.html' %}
+
+{% block title %}Upload Photo{% endblock %}
+{% block content %}
+<!-- Create a JavaScript and HTML photo upload form, which will post to /api/images/upload with form data containing a "file" field. This page will use bootstrap styling-->
+ <div class="container">
+    <h1>Upload Photo</h1>
+    <form>
+      <input type="hidden" name="_csrf_token" value="{{ csrfToken }}">
+      <label for="file">Filename:</label><br/>
+      <input type="file" id="file" name="file"><br/><br/>
+      <button class="btn btn-primary" type="submit">Upload</button>
+    </form>
+  </div>
+<!-- Create a JavaScript function to handle photo upload -->
+<script>
+  const form = document.querySelector('form');
+  const fileInput = document.getElementById('file');
+
+  // Add event listener to the form's submit event
+  form.addEventListener('submit', (e) => {
+    e.preventDefault(); // Prevent default form submission
+
+    // Get the selected file
+    const file = fileInput.files[0];
+
+    if (!file) return; // If no file is selected, stop here
+
+    // Create a new FormData object to hold our data
+    const formData = new FormData();
+
+    // Add the file to the FormData object
+    formData.append('file', file);
+
+    // Send an AJAX request to /api/images/upload with the FormData object
+    fetch('/api/images/upload', {
+      method: 'POST',
+      body: formData,
+    })
+    .then((response) => response.json())
+    .then((data) => {
+        // If successful, show success message using bootstrap alert class with successs class
+        if (data.message) { 
+            console.log('success');
+            console.log(data);
+            const alert = "<div class='alert alert-success'><b>Success:</b> " + data.message + "</div>";
+            $("#alerts").html(alert);
+        }
+        if (data.error) { // If there is an error, show the error message using bootstrap alert class with danger class
+          console.log('error');
+          console.log(data);
+          const alert = "<div class='alert alert-danger'><b>Error:</b> " + data.error + "</div>";
+          $("#alerts").html(alert);
+        }
+    })
+    .catch((error) => {
+        console.log('Error:', error);
+        // insert HTML message in "alerts" div using bootstrap alert class with danger class
+        const alert = "<div class='alert alert-danger'>" + "<b>Error:</b>" + " " + error + "</div>";
+        $("#alerts").html(alert);
+    });
+  });
+</script>
+
+{% endblock %}

@@ -1,0 +1,29 @@
+{% extends 'admin_main.html' %}
+
+{% block title %}Images{% endblock %}
+{% block content %}
+<div class="container">
+    <h1>Images</h1>
+    <hr/>
+    <!-- Table of images, taken by API from /api/images. Table should display Image as first colum, file name (name key) and upload location (path key)-->
+     <table id="imageTable" class="table table-dark table-striped">
+        <thead>
+            <tr>
+                <th>Image</th>
+                <th>File Name</th>
+                <th>Upload Location</th>
+            </tr>
+        </thead>
+     </table>
+</div>
+<script>
+    // Get image list from /api/images. Table should display Image as first colum, file name (name key) and upload location (path key).
+    $.getJSON('/api/images', function(data){
+        var table = $('#imageTable');
+         $.each(data,function(){
+             table.append('<tr><td><img src="'+this['path']+'" alt="Image" style="width: 30%" class="img-responsive"></td><td>'+this['name']+'</td><td>'+this['path']+'</td></tr>');
+         });
+     });
+
+</script>
+{% endblock %}
