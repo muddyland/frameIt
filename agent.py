@@ -6,7 +6,7 @@ import os
 import subprocess
 
 # Define API key
-API_KEY = ''
+API_KEY = os.environ.get('APIKEY', '')
 if not API_KEY:
     print('API key not set!')
     exit()        

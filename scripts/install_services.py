@@ -11,39 +11,39 @@ service_templates = {
 }
 
 def install_service(location, service_name):
+    
+    if service_name == 'frameit-agent':
+        api_key = input("Enter your FrameIT Agent API key (make it random): ")
+    else:
+        api_key = None
+    
+    if service_name == 'frameit-ui':
+        server_url = input("Enter the URL for the server (including http(s) and port): ")
+    else:
+        server_url = None
+    
     # Render the service file with Jinja2
     template = Template(open(service_templates[service_name]).read())
     rendered_service_file = template.render(
         install_loc=location,
-        server_url=get_server_url(service_name)
+        server_url=server_url,
+        api_key=api_key
     )
 
     # Create the installation directory if it does not exist
-    service_dir = os.path.join(location, 'services')
+    service_dir = os.path.join(f"/home/{getuser()}/.config/systemd/user/")
     os.makedirs(service_dir, exist_ok=True)
 
     # Save the rendered service file to the installation location
     with open(os.path.join(service_dir, f'{service_name}.service'), 'w') as f:
         f.write(rendered_service_file)
 
-def get_server_url(service_name):
-    if service_name == 'frameit-server':
-        return 'http://localhost:5000'
-    else:
-        return input("Enter the URL for the server: ")
-
 def main():
     print("Systemd Service Installer")
     
-    # Ask user for the install location
-    while True:
-        location = input(f"Enter the installation location ({getuser()}/.config/systemd/user/): ")
+    location = os.getcwd()
+    print(f"Pointing Services to {location}...")
         
-        if not os.path.exists(location):
-            print(f"The directory '{location}' does not exist.")
-        else:
-            break
-    
     services_to_install = {}
     
     # Ask user which services to install
