@@ -164,7 +164,7 @@ def get_random():
     
     # If 'images.json' exists but has no photos, return an empty list
     elif len(images['photos']) == 0:
-        return {"path" : "/static/no-image.jpg", "name" : "No images are preset", "top_banner" : "No Images", "bottom_banner" : "Please add some images"}
+        return {"path" : "/static/img/no-image.jpg", "name" : "No images are preset", "top_banner" : "No Images", "bottom_banner" : "Please add some images"}
     
     else:
         return {'error': 'Error returning an image...'}
@@ -182,30 +182,35 @@ def frame():
     if load_images_json()['photos']:
         sources.append('db')
     
-    print(f"Sources: {sources}")
-    # Get a random choice of the above sources
-    
-    choice = random.choice(sources)
-    
-    # If choice is 'db' then get a picture from the database, else get one from overseerr
-    if choice == 'overseerr':
-        photo  = get_overseerr_media()
-        if not photo:
-            photo = get_random()
-            top_banner = "Now Playing"
-            bottom_banner = ""
+    if sources:
+        print(f"Sources: {sources}")
+        # Get a random choice of the above sources
+        
+        choice = random.choice(sources)
+        
+        # If choice is 'db' then get a picture from the database, else get one from overseerr
+        if choice == 'overseerr':
+            photo  = get_overseerr_media()
+            if not photo:
+                photo = get_random()
+                top_banner = "Now Playing"
+                bottom_banner = ""
+            else:
+                top_banner = "Coming Soon"
+                bottom_banner = photo['release_date']
+        elif choice == 'radarr':
+            photo   = get_radarr_media()
+            if not photo:
+                photo = get_random()
+                top_banner = "Now Playing"
+                bottom_banner = ""
+            else:
+                top_banner  = "Recently Added"
+                bottom_banner  = photo['added_date']
         else:
-            top_banner = "Coming Soon"
-            bottom_banner = photo['release_date']
-    elif choice == 'radarr':
-        photo   = get_radarr_media()
-        if not photo:
             photo = get_random()
-            top_banner = "Now Playing"
-            bottom_banner = ""
-        else:
-            top_banner  = "Recently Added"
-            bottom_banner  = photo['added_date']
+            top_banner = photo['top_banner']
+            bottom_banner = photo['bottom_banner']
     else:
         photo = get_random()
         top_banner = photo['top_banner']
