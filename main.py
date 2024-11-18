@@ -159,7 +159,7 @@ def get_random():
         index = random.randrange(len(images['photos']))        
         image = images['photos'][index]
         image['top_banner'] = "Now Playing"
-        image['bottom_banner'] = "Tickets Avalible"
+        image['bottom_banner'] = "Tickets Available Now"
         return image
     
     # If 'images.json' exists but has no photos, return an empty list

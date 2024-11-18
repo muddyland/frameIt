@@ -1,0 +1,14 @@
+[Unit]
+Description=FrameIt Server Service
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart={{ install_loc }}/.venv/bin/python -m gunicorn -w 2 -b :5000 main:app
+Restart=always
+Environment=PYTHONUNBUFFERED=1
+WorkingDirectory={{ install_loc }}
+Restart=always
+RestartSec=3
+StartLimitInterval=60s
+StartLimitBurst=3
