@@ -156,6 +156,10 @@ def get_random():
     
     # If 'images.json' exists and has photos, return one at random
     if len(images['photos']) > 0:
+        # Shuffle the list of images
+        random.shuffle(images['photos'])
+
+        # Select a random index from the shuffled list
         index = random.randrange(len(images['photos']))        
         image = images['photos'][index]
         image['top_banner'] = "Now Playing"
@@ -183,11 +187,11 @@ def frame():
         sources.append('db')
     
     if sources:
-        print(f"Sources: {sources}")
         # Get a random choice of the above sources
+        random.shuffle(sources)
+        print(f"Sources: {sources}")
         
         choice = random.choice(sources)
-        
         # If choice is 'db' then get a picture from the database, else get one from overseerr
         if choice == 'overseerr':
             photo  = get_overseerr_media()
