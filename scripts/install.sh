@@ -25,7 +25,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 # Run the installation script
-./scripts/install.py
+./scripts/install_services.py
 
 echo "Installation complete!"
 read -p "Would you like to reboot now? (y/n): " REBOOT_CHOICE
