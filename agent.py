@@ -36,11 +36,27 @@ app = Flask(__name__)
 def index():
     return jsonify({"message": "Hello, world. This is just a dumb api, nothing to see here"})
 
-@app.route("/status/ui", methods=['GET'])
+# Get status of systemd services and return in JSON
+@app.route("/status/<str:service>", methods=['GET'])
 @key_check
-def ui_status():
-    run = subprocess.run(["xset", "-display", ":0", "q"])
-    return jsonify({"status": "on" if is_on() else "off"})
+def service_status(service):
+    if not service:
+        return jsonify({"error" : "No service passed in URL"})
+    
+    if service == "ui":
+        systemd_service = "frameit-ui"
+    elif service == "agent":
+        systemd_service = "frameit-agent"
+    elif service == "server":
+        systemd_service = "frameit-server"
+    else:
+        return jsonify({"error" : "Service not found"})
+    
+    try:
+        run = subprocess.run(["systemd", "is-active", "{}".format(systemd_service)])
+        return jsonify({"status": f"{run.stdout}"})
+    except Exception as e:
+        return jsonify({"error" : f"{e}"})
 
 # Function to get or set monitor status
 @app.route('/monitor', methods=['POST', 'GET'])
