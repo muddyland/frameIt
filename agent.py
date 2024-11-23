@@ -55,7 +55,7 @@ def sysinfo():
 def reboot(): 
     #reboot command 
     
-    reboot_command = ["sudo", "/usr/sbin/reboot"]
+    reboot_command = "sudo /usr/sbin/reboot"
     reboot_call = subprocess.run(reboot_command, shell=True)
     if reboot_call.returncode == 0:   
         return jsonify({'message': 'Rebooting'})
