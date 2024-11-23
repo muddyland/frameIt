@@ -53,7 +53,7 @@ def service_status(service):
         return jsonify({"error" : "Service not found"})
     
     try:
-        run = subprocess.run(["systemctl", "--user", "is-active", "{}".format(systemd_service)])
+        run = subprocess.run(["systemctl", "--user", "is-active", "{}".format(systemd_service)], stdout=subprocess.PIPE)
         return jsonify({"status": f"{run.stdout}"})
     except Exception as e:
         return jsonify({"error" : f"{e}"})
