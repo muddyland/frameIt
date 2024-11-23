@@ -53,12 +53,14 @@ def sysinfo():
 @app.route('/system/reboot', methods=['POST'])
 @key_check
 def reboot(): 
-   reboot_command = ["sudo", "reboot"]
-   reboot_call = subprocess.run(reboot_command, shell=True)
-   if reboot_call.returncode == 0:   
-     return jsonify({'message': 'Rebooting'})
-   else:
-       return jsonify({'error': reboot_call.returncode, "message" : reboot_call.stderr})
+    #reboot command 
+    
+    reboot_command = ["sudo", "/usr/sbin/reboot"]
+    reboot_call = subprocess.run(reboot_command, shell=True)
+    if reboot_call.returncode == 0:   
+        return jsonify({'message': 'Rebooting'})
+    else:
+        return jsonify({'error': reboot_call.returncode, "message" : reboot_call.stderr})
 
 # frameIT/agen
 # Get status of systemd services and return in JSON
