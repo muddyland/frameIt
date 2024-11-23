@@ -54,7 +54,7 @@ def service_status(service):
     
     try:
         run = subprocess.run(["systemctl", "--user", "is-active", "{}".format(systemd_service)], stdout=subprocess.PIPE)
-        return jsonify({"status": f"{run.stdout}"})
+        return jsonify({"status": f"{run.stdout.decode("utf-8")}"})
     except Exception as e:
         return jsonify({"error" : f"{e}"})
 
