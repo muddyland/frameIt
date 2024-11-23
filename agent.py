@@ -36,6 +36,31 @@ app = Flask(__name__)
 def index():
     return jsonify({"message": "Hello, world. This is just a dumb api, nothing to see here"})
 
+# Add a function to get the CPU, RAM, and CPU Temp of the Raspbery Pi
+@app.route('/system/stats', methods=['GET'])
+@key_check
+def sysinfo():
+  cpu = psutil.cpu_percent()
+  ram = psutil.virtual_memory().percent
+  disk = psutil.disk_usage("/").percent
+  return jsonify({
+     'cpu' : cpu,
+     'mem' : ram,
+     'disk' : disk,
+    })
+
+# Add a reboot function
+@app.route('/system/reboot', methods=['POST'])
+@key_check
+def reboot(): 
+   reboot_command = ["sudo", "reboot"]
+   reboot_call = subprocess.run(reboot_command, shell=True)
+   if reboot_call.returncode == 0:   
+     return jsonify({'message': 'Rebooting'})
+   else:
+       return jsonify({'error': reboot_call.returncode, "message" : reboot_call.stderr})
+
+# frameIT/agen
 # Get status of systemd services and return in JSON
 @app.route("/status/<service>", methods=['GET'])
 @key_check
