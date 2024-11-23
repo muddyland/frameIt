@@ -37,7 +37,7 @@ def index():
     return jsonify({"message": "Hello, world. This is just a dumb api, nothing to see here"})
 
 # Get status of systemd services and return in JSON
-@app.route("/status/<str:service>", methods=['GET'])
+@app.route("/status/<service>", methods=['GET'])
 @key_check
 def service_status(service):
     if not service:
