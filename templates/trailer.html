@@ -32,12 +32,14 @@
         
         #top-banner h1 {
             margin: 0;
-            padding-top: 3%;
+            padding-top: 4.5%;
+            height: 100%
         }
         
         #bottom-banner h1 {
             margin: 0;
-            padding-top: 1%;
+            padding-top: 4.5%;
+            height: 100%;
         }
         
         /* Center the iframe */
@@ -45,7 +47,7 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            height: 100vh; /* Make sure this is high enough to show the whole video */
+            height: 80vh; /* Make sure this is high enough to show the whole video */
             width: 100vw;
         }
         
@@ -99,15 +101,10 @@
             event.target.playVideo();
             //event.target.unMute();
         }
-        var done = false;
         function onPlayerStateChange(event) {
-            if (event.data == YT.PlayerState.PLAYING && !done) {
-            setTimeout(stopVideo, 120000);
-            done = true;
+            if (event.data == YT.PlayerState.ENDED | event.data == YT.PlayerState.PAUSED) {
+              window.location.reload();
             }
-        }
-        function stopVideo() {
-            window.location.reload();
         }
     </script>
 </body>

@@ -239,7 +239,7 @@ def frame():
             video = random.choice(trailers)
             id = video['id']
             name = video['name']
-            return render_template('trailer.html', video_id=id, bottom_banner=name)
+            return render_template('trailer.html', video_id=id, top_banner=name, bottom_banner="Now Playing")
         else:
             photo = get_random()
             top_banner = photo['top_banner']
