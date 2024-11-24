@@ -103,7 +103,7 @@ def get_radarr_media():
     except:
         e = sys.exc_info()
         print(f"Error getting Radarr media history: {e}")
-        return []
+        return None
 
 def get_overseerr_media():
     print(f"Getting Overseerr media from {OVERSEERR_API_URL}")
@@ -132,7 +132,8 @@ def get_overseerr_media():
         return {"media_type": media_type, "name": imdb_url, "path": imdb_url, "media_data": media_data, "release_date" : release_date}
     
     except requests.exceptions.RequestException as e:
-        return {"error": str(e)}, 500
+        print(f"Error: {e}")
+        return None
 
 # Function to update images.json with new image path
 def update_photos_json(new_img_path):
