@@ -121,15 +121,12 @@ def get_overseerr_media():
             return {"error": "Failed to fetch data. Status code: " + str(response.status_code) + " " + str(response.text)}, 500
 
         media_data = response.json()
-        
         random_media_item = random.choice(media_data['results'])
-        release_date = datetime.strptime(random_media_item["releaseDate"], "%Y-%m-%d")
-        release_date = datetime.strftime(release_date, "%B %Y")
         poster_url = random_media_item['posterPath']
-        
+        title = random_media_item['title']
         imdb_url = f"https://image.tmdb.org/t/p/original{poster_url}"
         
-        return {"media_type": media_type, "name": imdb_url, "path": imdb_url, "media_data": media_data, "release_date" : release_date}
+        return {"media_type": media_type, "name": imdb_url, "path": imdb_url, "media_data": media_data, "title" : title}
     
     except requests.exceptions.RequestException as e:
         print(f"Error: {e}")
@@ -225,8 +222,8 @@ def frame():
                 top_banner = photo['top_banner']
                 bottom_banner = photo['bottom_banner']
             else:
-                top_banner = "Coming Soon"
-                bottom_banner = photo.get('release_date', "TBD")
+                top_banner = photo.get("title", "Unknown")
+                bottom_banner = "Coming Soon"
         elif choice == 'radarr':
             photo   = get_radarr_media()
             if not photo:
