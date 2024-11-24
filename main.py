@@ -24,24 +24,24 @@ JSON_file = DATA_DIR + '/data.json'
 
 app = Flask(__name__, static_url_path='/static', static_folder=STATIC_DIR)
 
-def load_images_json():
+def load_json_data():
     try:
         with open(JSON_file, 'r') as f:
             data = json.load(f)
             return data
     except FileNotFoundError:
         print("Error: images.json was not found.")
-        return {"photos" : []}
+        return {"photos" : [], "trailers" : []}
     except json.JSONDecodeError:
         print("Error: unable to parse images.json file.")
-        return {"photos" : []}
+        return {"photos" : [], "trailers": []}
 
-def save_images_json(data):
+def save_json_data(data):
     try:
         with open(JSON_file, 'w') as f:
             json.dump(data, f)
     except Exception as e:
-        print(f"Error saving images.json: {e}")
+        print(f"Error saving data.json: {e}")
         
 # Function to store uploaded image
 def upload_image(image_data, filename):
@@ -135,8 +135,8 @@ def get_overseerr_media():
         return {"error": str(e)}, 500
 
 # Function to update images.json with new image path
-def update_images_json(new_img_path):
-    data = load_images_json()
+def update_photos_json(new_img_path):
+    data = load_json_data()
         
     if new_img_path in [i['name'] for i in data['photos']]:
         raise Exception(f"Image {new_img_path} already exists.")
@@ -145,14 +145,36 @@ def update_images_json(new_img_path):
         "path": new_img_path.replace(IMAGES_DIR, '/images')
     }
     data['photos'].append(new_image)
-    save_images_json(data)
+    save_json_data(data)
 
+# Function to update images.json with new image path
+def update_trailer_json(new_trailer):
+    data = load_json_data()
+    if not new_trailer.get('id') or not new_trailer.get('name'):
+        raise Exception("Trailer ID and Name are required.")
+    if new_trailer['id'] in [i['id'] for i in data['trailers']]:
+        raise Exception(f"Trailer {new_trailer['id']} already exists.")
+    new_image = {
+        "name": new_trailer['name'],
+        "id": new_trailer['id']
+    }
+    data['trailers'].append(new_image)
+    save_json_data(data) 
+
+def history(request, source, object):
+    data = load_json_data()
+    data['frames'][request.remote_addr] = {
+        "last_played" : object,
+        "source" : source
+    }
+    save_json_data(data)
+    
 def get_random():
     """
     Returns a random image from the 'images.json' file.
     """
     print("Getting random poster from local storage")
-    images = load_images_json()
+    images = load_json_data()
     
     # If 'images.json' exists and has photos, return one at random
     if len(images['photos']) > 0:
@@ -183,8 +205,10 @@ def frame():
         sources.append('radarr')
     if OVERSEERR_API_TOKEN and OVERSEERR_API_URL:
         sources.append('overseerr')
-    if load_images_json()['photos']:
+    if load_json_data()['photos']:
         sources.append('db')
+    if load_json_data()['trailers']:
+        sources.append('trailers')
     
     if sources:
         # Get a random choice of the above sources
@@ -211,6 +235,13 @@ def frame():
             else:
                 top_banner  = "Recently Added"
                 bottom_banner  = photo['added_date']
+        elif choice == 'trailers':
+            trailers = load_json_data()['trailers']
+            random.shuffle(trailers)
+            video = random.choice(trailers)
+            id = video['id']
+            name = video['name']
+            return render_template('trailer.html', video_id=id, bottom_banner=name)
         else:
             photo = get_random()
             top_banner = photo['top_banner']
@@ -221,6 +252,10 @@ def frame():
         bottom_banner = photo['bottom_banner']
     
     return render_template('frame.html', photo=photo, top_banner=top_banner, bottom_banner=bottom_banner)
+
+@app.route('/trailer', methods=["GET"])
+def trailer():
+    return render_template('trailer.html', bottom_banner="", top_banner="")
 
 @app.route('/admin')
 def index():
@@ -259,7 +294,7 @@ def get_images():
     Returns:
         A Flask Response object with a JSON payload containing the list of files.
     """
-    images = load_images_json()
+    images = load_json_data()
     
     # If 'images.json' exists, return its contents as JSON
     if images['photos']:
@@ -285,7 +320,7 @@ def add_image():
         A Flask Response object with a JSON payload containing the updated list of files.
     """
     try:
-        data = load_images_json()
+        data = load_json_data()
         
         # Get the new image details from the request body
         new_image = {
@@ -297,7 +332,7 @@ def add_image():
         data['photos'].append(new_image)
         
         # Save the updated JSON file
-        save_images_json(data)
+        save_json_data(data)
         
         return jsonify({'message': 'Image added successfully'}), 201
     
@@ -326,7 +361,7 @@ def upload():
     img_path = upload_image(request.files['file'].read(), file_name)
     
     # Update images.json with new image path
-    update_images_json(img_path)
+    update_photos_json(img_path)
 
     return jsonify({'message': 'Image uploaded successfully'}), 201
 

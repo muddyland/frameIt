@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FrameIt</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.8/dist/umd/popper.min.js" integrity="sha384-I7E8VVD/ismYTF4hNIPjVp/Zjvgyol6VFvRkX/vR+Vc4jQkC+hVqc2pM8ODewa9r" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.min.js" integrity="sha384-0pUGZvbkm6XF6gxjEnlmuGrJXVbNuzT9qBBavbLwCsOGabYfZo0T0to5eqruptLy" crossorigin="anonymous"></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100vh;
+            overflow: hidden;
+            background-color: black;
+            transform: rotate(180deg);
+        }
+        
+        /* Center the banner */
+        #top-banner, #bottom-banner {
+            position: absolute;
+            width: 100%;
+            height: 10%;
+            background-color: black;
+            color: white;
+            text-align: center;
+        }
+        
+        #top-banner h1 {
+            margin: 0;
+            padding-top: 3%;
+        }
+        
+        #bottom-banner h1 {
+            margin: 0;
+            padding-top: 1%;
+        }
+        
+        /* Center the iframe */
+        .video-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh; /* Make sure this is high enough to show the whole video */
+            width: 100vw;
+        }
+        
+        iframe {
+            width: 80vw; /* Set the iframe's width to 80% of its parent container's width */
+            height: 60vh; /* Set the iframe's height to 60% of its parent container's height */
+        }
+    </style>
+</head>
+<body>
+     <div id="top-banner">
+        <h1>{{top_banner}}</h1>
+     </div>
+    
+    <!-- Make this a fluid container -->
+    <div class="video-container" id="trailer-container">
+        
+    </div>
+    
+    <div id="bottom-banner">
+        <h1>{{bottom_banner}}</h1>
+    </div>
+    
+    <script>
+        // Load the IFrame Player API code asynchronously.
+        var tag = document.createElement('script');
+        tag.src = "https://www.youtube.com/player_api";
+        var firstScriptTag = document.getElementsByTagName('script')[0];
+        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+        // Replace the 'ytplayer' element with an <iframe> and
+        // YouTube player after the API code downloads.
+        var player;
+        function onYouTubePlayerAPIReady() {
+            player = new YT.Player('trailer-container', {
+                videoId: '{{ video_id }}',
+                playerVars: {
+                    'autoplay': 1,
+                    'showinfo': 0,
+                    'controls': 0,
+                    "modestbranding": 0
+                },
+                events: {
+                    'onReady': onPlayerReady,
+                    'onStateChange': onPlayerStateChange
+                }
+            });
+        }
+        
+        function onPlayerReady(event) {    
+            event.target.mute();        
+            event.target.playVideo();
+            //event.target.unMute();
+        }
+        var done = false;
+        function onPlayerStateChange(event) {
+            if (event.data == YT.PlayerState.PLAYING && !done) {
+            setTimeout(stopVideo, 120000);
+            done = true;
+            }
+        }
+        function stopVideo() {
+            window.location.reload();
+        }
+    </script>
+</body>
+</html>
