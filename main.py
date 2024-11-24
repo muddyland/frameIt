@@ -222,8 +222,8 @@ def frame():
             photo  = get_overseerr_media()
             if not photo:
                 photo = get_random()
-                top_banner = "Now Playing"
-                bottom_banner = ""
+                top_banner = photo['top_banner']
+                bottom_banner = photo['bottom_banner']
             else:
                 top_banner = "Coming Soon"
                 bottom_banner = photo.get('release_date', "TBD")
@@ -231,8 +231,8 @@ def frame():
             photo   = get_radarr_media()
             if not photo:
                 photo = get_random()
-                top_banner = "Now Playing"
-                bottom_banner = ""
+                top_banner = photo['top_banner']
+                bottom_banner = photo['bottom_banner']
             else:
                 top_banner  = "Recently Added"
                 bottom_banner  = photo.get('added_date', "Watch Now")
