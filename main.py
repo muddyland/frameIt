@@ -225,7 +225,7 @@ def frame():
                 bottom_banner = ""
             else:
                 top_banner = "Coming Soon"
-                bottom_banner = photo['release_date']
+                bottom_banner = photo.get('release_date', "TBD")
         elif choice == 'radarr':
             photo   = get_radarr_media()
             if not photo:
@@ -234,7 +234,7 @@ def frame():
                 bottom_banner = ""
             else:
                 top_banner  = "Recently Added"
-                bottom_banner  = photo['added_date']
+                bottom_banner  = photo.get('added_date', "Watch Now")
         elif choice == 'trailers':
             trailers = load_json_data()['trailers']
             random.shuffle(trailers)
