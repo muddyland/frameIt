@@ -544,12 +544,20 @@ def agent_proxy(frame_id, subpath):
         for h in ('X-Accel-Buffering', 'Cache-Control'):
             if h in resp.headers:
                 fwd_headers[h] = resp.headers[h]
-        return Response(
-            stream_with_context(resp.iter_content(chunk_size=None)),
-            status=resp.status_code,
-            content_type=resp.headers.get('Content-Type', 'application/json'),
-            headers=fwd_headers,
-        )
+        ct = resp.headers.get('Content-Type', 'application/json')
+        # iter_content(chunk_size=None) calls raw.read(None) which blocks until
+        # the entire response is received — useless for streaming.  For plain-
+        # text streaming responses (apt output etc.) use iter_lines() instead so
+        # each line is forwarded as soon as it arrives.
+        if ct.startswith('text/plain'):
+            def _stream_lines():
+                for line in resp.iter_lines(decode_unicode=True):
+                    yield line + '\n'
+            body = stream_with_context(_stream_lines())
+        else:
+            body = stream_with_context(resp.iter_content(chunk_size=512))
+        return Response(body, status=resp.status_code, content_type=ct,
+                        headers=fwd_headers)
     except (http_requests.exceptions.ConnectionError, http_requests.exceptions.Timeout):
         return jsonify({'error': 'Agent unreachable'}), 503
 

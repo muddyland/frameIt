@@ -154,27 +154,39 @@ _STREAM_HEADERS = {'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'}
 @app.route('/system/update', methods=['POST'])
 @require_token
 def apt_update():
-    def _stream():
-        with subprocess.Popen(
+    try:
+        proc = subprocess.Popen(
             ['sudo', 'apt-get', 'update'],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, bufsize=1,
-        ) as proc:
-            yield from proc.stdout
+        )
+    except OSError as e:
+        return jsonify({'error': str(e)}), 500
+
+    def _stream():
+        yield from proc.stdout
+        proc.wait()
+
     return Response(_stream(), mimetype='text/plain', headers=_STREAM_HEADERS)
 
 
 @app.route('/system/upgrade', methods=['POST'])
 @require_token
 def apt_upgrade():
-    def _stream():
-        with subprocess.Popen(
+    try:
+        proc = subprocess.Popen(
             ['sudo', 'apt-get', 'upgrade', '-y'],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, bufsize=1,
             env={**os.environ, 'DEBIAN_FRONTEND': 'noninteractive'},
-        ) as proc:
-            yield from proc.stdout
+        )
+    except OSError as e:
+        return jsonify({'error': str(e)}), 500
+
+    def _stream():
+        yield from proc.stdout
+        proc.wait()
+
     return Response(_stream(), mimetype='text/plain', headers=_STREAM_HEADERS)
 
 
