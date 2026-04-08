@@ -4,10 +4,6 @@ import uuid
 import random
 import secrets
 import subprocess
-from datetime import datetime, timezone
-
-def utcnow():
-    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 import requests as http_requests
 from flask import (Flask, render_template, request, jsonify, send_from_directory,
@@ -15,7 +11,7 @@ from flask import (Flask, render_template, request, jsonify, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-from models import db, Poster, Trailer, Frame, FrameLog, RegistrationToken, Settings, AdminUser
+from models import db, Poster, Trailer, Frame, FrameLog, RegistrationToken, Settings, AdminUser, utcnow
 
 STATIC_DIR = './static'
 DATA_DIR = os.environ.get("DATA_DIR", './config')
@@ -33,11 +29,11 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # Persist secret key so sessions survive restarts
 _key_path = os.path.join(DATA_DIR, 'secret.key')
 if os.path.exists(_key_path):
-    with open(_key_path) as _f:
+    with open(_key_path, encoding='utf-8') as _f:
         _secret = _f.read().strip()
 else:
     _secret = secrets.token_hex(32)
-    with open(_key_path, 'w') as _f:
+    with open(_key_path, 'w', encoding='utf-8') as _f:
         _f.write(_secret)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', _secret)
 
@@ -57,10 +53,10 @@ _PUBLIC_ENDPOINTS = {
 @app.before_request
 def check_auth():
     if request.endpoint is None or request.endpoint in _PUBLIC_ENDPOINTS:
-        return
+        return None
     # Already authenticated — fast path, no DB query
     if session.get('admin_user'):
-        return
+        return None
     # First-run: no users exist yet
     if AdminUser.query.count() == 0:
         return redirect(url_for('admin_setup'))
@@ -193,9 +189,8 @@ def frame_next(frame_id):
                         'url': f'/images/{item.filename}',
                         'title_above': title_above or '',
                         'title_below': title_below or ''})
-    else:
-        return jsonify({**base, 'type': 'trailer', 'id': item.id,
-                        'youtube_id': item.youtube_id, 'title': item.title})
+    return jsonify({**base, 'type': 'trailer', 'id': item.id,
+                    'youtube_id': item.youtube_id, 'title': item.title})
 
 
 # ---------------------------------------------------------------------------

@@ -325,8 +325,7 @@ def register():
                 _frame_id = data.get('frame_id')
                 print(f'[agent] Registered as frame #{_frame_id}')
                 return
-            else:
-                print(f'[agent] Registration failed ({resp.status_code}): {resp.text}')
+            print(f'[agent] Registration failed ({resp.status_code}): {resp.text}')
         except Exception as e:
             print(f'[agent] Registration error: {e}')
         time.sleep(15)

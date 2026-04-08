@@ -21,8 +21,24 @@ disable =
     # We use subprocess intentionally for system control.
     subprocess-run-check,
 
-    # Logging via print() is acceptable in this project.
-    print-used
+    # Docstrings are not required for Flask route functions or simple models.
+    missing-module-docstring,
+    missing-function-docstring,
+    missing-class-docstring,
+
+    # Flask defines a route function named 'frame'; local variables named
+    # 'frame' in other routes shadow it — this is intentional and harmless.
+    redefined-outer-name,
+
+    # Agent uses a module-level mutable variable (not a true constant).
+    invalid-name,
+
+    # Agent and server catch broad exceptions intentionally for resilience —
+    # network and subprocess errors can come in many forms.
+    broad-exception-caught,
+
+    # Agent uses 'global _frame_id' to update registration state from a thread.
+    global-statement
 
 [FORMAT]
 max-line-length = 120
