@@ -171,10 +171,16 @@ echo "==> Installing frameit-ui service..."
 $SUDO tee "$UI_SERVICE" > /dev/null <<EOF
 [Unit]
 Description=FrameIT Kiosk UI
-After=frameit-agent.service
+After=frameit-agent.service systemd-user-sessions.service
+Conflicts=getty@tty1.service
 
 [Service]
 User=$KIOSK_USER
+TTYPath=/dev/tty1
+StandardInput=tty
+PAMName=login
+UtmpIdentifier=tty1
+UtmpMode=user
 ExecStart=/usr/bin/xinit $KIOSK_SCRIPT -- /usr/bin/X :0 vt1 -nocursor -nolisten tcp
 Restart=always
 RestartSec=5
