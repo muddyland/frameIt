@@ -206,8 +206,8 @@
                 root.style.width = '100vh';
                 root.style.height = '100vw';
                 root.style.position = 'fixed';
-                root.style.top = deg === 90 ? '0' : 'auto';
-                root.style.left = deg === 90 ? '100%' : '-100%';
+                root.style.top  = deg === 90 ? '0'     : '100vh';
+                root.style.left = deg === 90 ? '100vw' : '0';
                 root.style.transformOrigin = 'top left';
             } else {
                 root.style.transform = deg ? 'rotate(' + deg + 'deg)' : '';

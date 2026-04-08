@@ -10,6 +10,7 @@ Environment variables:
     AGENT_PORT      - Port this agent listens on (default: 5001)
 """
 
+import hashlib
 import os
 import pwd
 import re
@@ -37,6 +38,16 @@ app = Flask(__name__)
 
 # Stored after first successful registration
 _frame_id = None
+
+# Hash of this agent.py file — used to detect when an update is available
+def _compute_version():
+    try:
+        with open(os.path.abspath(__file__), 'rb') as _f:
+            return hashlib.sha256(_f.read()).hexdigest()[:12]
+    except Exception:
+        return 'unknown'
+
+AGENT_VERSION = _compute_version()
 
 # ---------------------------------------------------------------------------
 # Input sanitization
@@ -72,7 +83,7 @@ def health():
         'ok': True,
         'hostname': socket.gethostname(),
         'uptime_seconds': int(time.time() - psutil.boot_time()),
-        'version': '1.0.0',
+        'version': AGENT_VERSION,
     })
 
 
@@ -316,21 +327,21 @@ def browser_status():
 @app.route('/browser/start', methods=['POST'])
 @require_token
 def browser_start():
-    r = subprocess.run(['systemctl', 'start', 'frameit-ui'], capture_output=True, text=True)
+    r = subprocess.run(['sudo', 'systemctl', 'start', 'frameit-ui'], capture_output=True, text=True)
     return jsonify({'ok': r.returncode == 0})
 
 
 @app.route('/browser/stop', methods=['POST'])
 @require_token
 def browser_stop():
-    r = subprocess.run(['systemctl', 'stop', 'frameit-ui'], capture_output=True, text=True)
+    r = subprocess.run(['sudo', 'systemctl', 'stop', 'frameit-ui'], capture_output=True, text=True)
     return jsonify({'ok': r.returncode == 0})
 
 
 @app.route('/browser/restart', methods=['POST'])
 @require_token
 def browser_restart():
-    r = subprocess.run(['systemctl', 'restart', 'frameit-ui'], capture_output=True, text=True)
+    r = subprocess.run(['sudo', 'systemctl', 'restart', 'frameit-ui'], capture_output=True, text=True)
     return jsonify({'ok': r.returncode == 0})
 
 
@@ -368,6 +379,7 @@ def heartbeat_loop():
         try:
             requests.post(
                 f'{FRAMEIT_SERVER}/api/agents/{_frame_id}/heartbeat',
+                json={'version': AGENT_VERSION},
                 timeout=5,
             )
         except Exception:
