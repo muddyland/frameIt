@@ -510,14 +510,20 @@ def agent_proxy(frame_id, subpath):
             headers=headers,
             json=request.get_json(silent=True),
             stream=True,
-            timeout=60,
+            timeout=(10, 300),  # 10s connect, 5min read between chunks
         )
+        # Forward streaming-friendly headers so nginx doesn't buffer
+        fwd_headers = {}
+        for h in ('X-Accel-Buffering', 'Cache-Control'):
+            if h in resp.headers:
+                fwd_headers[h] = resp.headers[h]
         return Response(
-            stream_with_context(resp.iter_content(chunk_size=1024)),
+            stream_with_context(resp.iter_content(chunk_size=None)),
             status=resp.status_code,
             content_type=resp.headers.get('Content-Type', 'application/json'),
+            headers=fwd_headers,
         )
-    except http_requests.exceptions.ConnectionError:
+    except (http_requests.exceptions.ConnectionError, http_requests.exceptions.Timeout):
         return jsonify({'error': 'Agent unreachable'}), 503
 
 

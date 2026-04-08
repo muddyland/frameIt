@@ -148,6 +148,9 @@ def agent_update():
     return jsonify({'message': 'Update started — agent will restart in a few seconds'})
 
 
+_STREAM_HEADERS = {'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'}
+
+
 @app.route('/system/update', methods=['POST'])
 @require_token
 def apt_update():
@@ -158,7 +161,7 @@ def apt_update():
             text=True, bufsize=1,
         ) as proc:
             yield from proc.stdout
-    return Response(_stream(), mimetype='text/plain')
+    return Response(_stream(), mimetype='text/plain', headers=_STREAM_HEADERS)
 
 
 @app.route('/system/upgrade', methods=['POST'])
@@ -172,7 +175,7 @@ def apt_upgrade():
             env={**os.environ, 'DEBIAN_FRONTEND': 'noninteractive'},
         ) as proc:
             yield from proc.stdout
-    return Response(_stream(), mimetype='text/plain')
+    return Response(_stream(), mimetype='text/plain', headers=_STREAM_HEADERS)
 
 
 @app.route('/system/services')
