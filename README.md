@@ -1,60 +1,180 @@
-# FrameIt
-FrameIt is a simple Python Flask application which displays Movie posters
+# FrameIT
 
-This code was written as part of a DYI project of mine, and it meant to be used in a very specific way
+FrameIT turns a Raspberry Pi and a monitor into a self-updating movie poster display. It cycles through poster images and YouTube trailers, managed from a web-based admin panel. Multiple frames can be managed from a single server, each with its own rotation, content schedule, and pinned item.
 
-I am putting this here in case it is useful for others to do the same. 
-
-# Example
 ![My Frame](https://cdn.mudhut.social/media_attachments/files/113/462/298/824/058/125/original/29ae776333bc73b9.jpeg)
 
-# Hardware
-## Screen
-I am using a 15 inch portable screen for my display, and a custom wood frame. You can find these portable monitors on Amazon for somewhat cheap. 
+---
 
-I used 180 degree HDMI and USB-C adapters to connect the monitor to the Pi. You can find these on Amazon as well.
+## Features
 
-The screen is powered via a 12v to 5v power supply. I did this becasue I have a long run through a wall, and didn't want voltage drop. The power supply works with 9v-24v so I can power it with basically any handy power supply..
+- Upload and manage movie poster images with custom banner text above and below
+- Add YouTube trailers that play automatically in kiosk mode
+- Multiple frames, each independently configurable (rotation, interval, pool or pinned content)
+- Per-frame agent for remote Pi management: reboot, apt update/upgrade, network config, display and browser control
+- Token-based agent registration with a one-command installer
+- Dark admin UI with authentication — setup on first visit, no config files needed
+- Works behind a reverse proxy
 
-## Raspberry Pi
-I am using a Raspbery Pi 3B+, powered by a 12v to 5v power supply. 
+---
 
-I am using a 64GB micro SD card, in case I decide to run the server sepratly on each Frame.
+## Architecture
 
-# Installing
-## Server
-The server can be installed seprate from the client, or you can run all 3 services on the same Raspberry Pi. I will post these later, after I have a working Dockerfile.
-
-## Client
-I have setup a small, hopefully functional install script for FrameIt. 
-
-It should be as simple as: 
-1. Flash a Raspberry Pi SD card or SSD with Rasbian Lite 64-bit
-2. Configure SSH if you have not already. I reccomend the Raspi imager as it can set up SSH and SSH keys for you. 
-3. Update your Pi, and install our basic dependeencies. 
-```bash
-sudo apt update && sudo apt upgrade -y
-sudo apt install git python3-venv -y
 ```
-4. Configure Pi to boot into a shell (autologin)
-   1. Launch raspi-config
-   ```bash
-   sudo raspi-config 
-   ``` 
-   2. Go to "System Options" -> "S5 Boot / Auto Login"
-   3. Choose "Console Autologin"
-   4. Apply and reboot
-5. Clone the repo and run the install script
+┌─────────────────────────┐        ┌──────────────────────────────┐
+│   FrameIT Server        │        │   Raspberry Pi               │
+│   (Flask + SQLite)      │◄──────►│   frameit-agent (port 5001)  │
+│   Admin UI              │        │   Chromium kiosk (port 5000) │
+└─────────────────────────┘        └──────────────────────────────┘
+```
+
+The server can run anywhere — a spare Pi, a home server, or a VPS. Each display Pi runs a lightweight agent that registers with the server using a one-time token, then receives proxied management commands through the admin UI.
+
+---
+
+## Hardware
+
+### Screen
+A 15" portable monitor in a custom wood frame. Portable monitors are available on Amazon at reasonable prices. 180° HDMI and USB-C adapters keep the cables tidy inside the frame. The screen is powered via a 12V-to-5V step-down supply — useful for long wall runs where voltage drop on USB power is a concern.
+
+### Raspberry Pi
+A Raspberry Pi 3B+ with a 64GB microSD card, also powered by a 12V-to-5V step-down. A Pi 4 or Pi Zero 2W will work as well.
+
+---
+
+## Server Installation
+
+The server runs on any machine with Python 3.9+. It does not need to be a Raspberry Pi.
+
 ```bash
-git clone https://github.com/muddyland/frameIt.git 
+git clone https://github.com/muddyland/frameIt.git
 cd frameIt
-bash scripts/install.sh
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+flask init-db
+gunicorn -w 1 -b 0.0.0.0:5000 main:app
 ```
-6. The Install script will install the server and client if requested, and will make them systemd services at the user level. It will also insttall xorg and the required dependencies for a simple UI, as well as Chromium for the browser.
 
-This is still a work in progress, remember, I have a working install, so I have not tested these fully
+On first visit to `/admin` you will be prompted to create an admin account. No config file needed.
 
-# License
-The code is MIT licensed, I do not care what you do with it. 
+### Running as a systemd service
 
-More to come as far as install docs and such, I am simply putting this here to have a place to work on it. 
+```ini
+[Unit]
+Description=FrameIT Server
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/frameit
+EnvironmentFile=/etc/frameit.env
+ExecStart=/opt/frameit/.venv/bin/gunicorn -w 1 -b 0.0.0.0:5000 main:app
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`/etc/frameit.env`:
+```
+DATA_DIR=/var/lib/frameit
+IMAGES_DIR=/var/lib/frameit/images
+```
+
+### Reverse proxy (nginx)
+
+```nginx
+server {
+    listen 80;
+    server_name frameit.local;
+
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+---
+
+## Pi / Client Installation
+
+FrameIT includes a one-command installer for Raspberry Pi OS Lite (64-bit recommended). It installs all dependencies, configures autologin, sets up Chromium in kiosk mode, and registers the agent with your server.
+
+**Before running the installer:**
+1. Flash a Pi with **Raspberry Pi OS Lite** using the Raspberry Pi Imager. Enable SSH and configure your user in the imager.
+2. Boot and SSH in.
+3. In the FrameIT admin panel, go to **Frames** and click **Generate Token**.
+
+**Run the installer on the Pi:**
+```bash
+curl -sSL http://your-server:5000/install.sh | sudo bash -s -- \
+  --server http://your-server:5000 \
+  --token <your-token>
+```
+
+If your Pi user is not `pi`, pass `--user <username>`:
+```bash
+curl -sSL http://your-server:5000/install.sh | sudo bash -s -- \
+  --server http://your-server:5000 \
+  --token <your-token> \
+  --user myuser
+```
+
+The installer will:
+- Install `chromium-browser`, `xorg`, `openbox`, `unclutter`, `network-manager`, and Python
+- Configure console autologin and start X automatically on tty1
+- Launch Chromium in kiosk mode pointing at your FrameIT server
+- Install and start the `frameit-agent` systemd service
+
+**Reboot to start the kiosk:**
+```bash
+sudo reboot
+```
+
+### Display orientation
+
+Rotation is configured per-frame from the admin panel (0°, 90°, 180°, 270°). Portrait mode is applied in software — no need to change anything on the Pi itself.
+
+---
+
+## Admin Panel
+
+| Section  | Description |
+|----------|-------------|
+| Dashboard | Live status of all registered frames |
+| Posters  | Upload images, set banner text, manage the rotation pool |
+| Trailers | Add YouTube trailers by URL or video ID |
+| Frames   | Register new frames (generate token → copy install command), configure each display, and manage the agent |
+
+---
+
+## Development
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+pip install psutil   # for agent tests
+pytest
+```
+
+Tests use an in-memory SQLite database and are isolated per test. Pylint is configured via `.pylintrc`.
+
+---
+
+## License
+
+MIT. Do what you want with it.
+
+---
+
+## A note on AI
+
+This project was built with help from Claude (Anthropic's AI assistant). Writing software solo, with limited time, is hard. AI assistance made it possible to move faster, think through architecture decisions, catch bugs early, and build things that would otherwise have sat on the backlog indefinitely.
+
+I think that's a good thing. AI used responsibly — as a collaborator, not a replacement for judgement — is genuinely useful for people building real things in the real world. Side projects, small teams, busy lives: AI helps close that gap between what you can imagine and what you can actually ship.
+
+If you use this project, feel free to do the same.

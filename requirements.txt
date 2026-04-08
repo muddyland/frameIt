@@ -1,6 +1,6 @@
 Flask
 flask-cors
+Flask-SQLAlchemy
 gunicorn
 requests
-jinja2
-psutil
+Werkzeug

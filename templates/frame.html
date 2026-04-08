@@ -3,78 +3,313 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FrameIt</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.8/dist/umd/popper.min.js" integrity="sha384-I7E8VVD/ismYTF4hNIPjVp/Zjvgyol6VFvRkX/vR+Vc4jQkC+hVqc2pM8ODewa9r" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.min.js" integrity="sha384-0pUGZvbkm6XF6gxjEnlmuGrJXVbNuzT9qBBavbLwCsOGabYfZo0T0to5eqruptLy" crossorigin="anonymous"></script>
-    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+    <title>FrameIT</title>
     <style>
+        *, *::before, *::after { box-sizing: border-box; }
         body, html {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            height: 100vh;
+            margin: 0; padding: 0;
+            width: 100%; height: 100vh;
             overflow: hidden;
-            background-color: black;
-            transform: rotate(180deg);
+            background: #000;
+            color: #fff;
+            font-family: sans-serif;
         }
-        #image-container {
-            position: relative;
+        #root {
             width: 100vw;
-            height: 100%;
+            height: 100vh;
             display: flex;
-            justify-content: center;
-            align-items: center;
-            transform-origin: center;
-        }
-        
-        #image-container img {
-            max-width: none;
-            max-height: none;
-            height: 80%;
-            transform-origin: center;
-            
+            flex-direction: column;
+            transition: transform 0.3s ease;
         }
         #top-banner, #bottom-banner {
-            position: absolute;
+            flex: 0 0 10%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+            font-size: clamp(1rem, 3vw, 2rem);
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            padding: 0 1rem;
+        }
+        #content-area {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        /* Poster */
+        #poster-img {
+            max-height: 100%;
+            max-width: 100%;
+            object-fit: contain;
+            display: none;
+        }
+
+        /* Trailer */
+        #trailer-container {
             width: 100%;
-            height: 10%;
-            background-color: black;
-            color: white;
+            height: 100%;
+            display: none;
+        }
+        #trailer-container iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        /* Loading spinner */
+        #loader {
+            position: fixed;
+            inset: 0;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+        .spinner {
+            width: 48px; height: 48px;
+            border: 5px solid #333;
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Not-registered screen */
+        #unregistered {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: #000;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
             text-align: center;
+            padding: 2rem;
+            z-index: 200;
         }
-        #top-banner h1 {
-            margin: 0;
-            padding-top: 2%;
+        #unregistered h1 {
+            font-size: clamp(1.5rem, 4vw, 3rem);
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            letter-spacing: 0.1em;
         }
-        #bottom-banner h1 {
-            margin: 0;
-            padding-top: 2%;
+        #unregistered .subtitle {
+            font-size: clamp(0.9rem, 2vw, 1.25rem);
+            color: #aaa;
+            margin-bottom: 2.5rem;
         }
-        #bottom-banner {
-            bottom: -5px;
+        #unregistered ol {
+            text-align: left;
+            display: inline-block;
+            font-size: clamp(0.85rem, 1.8vw, 1.1rem);
+            line-height: 2;
+            color: #ccc;
+            margin-bottom: 2rem;
+        }
+        #unregistered ol li { margin-bottom: 0.25rem; }
+        #unregistered .admin-link {
+            display: inline-block;
+            background: #1a1a1a;
+            border: 1px solid #444;
+            border-radius: 6px;
+            padding: 0.5rem 1.25rem;
+            color: #fff;
+            font-size: clamp(0.8rem, 1.5vw, 1rem);
+            text-decoration: none;
+            letter-spacing: 0.05em;
+            margin-bottom: 2rem;
+        }
+        #unregistered .bypass-hint {
+            font-size: clamp(0.7rem, 1.2vw, 0.85rem);
+            color: #555;
         }
     </style>
 </head>
 <body>
-     <div id="top-banner">
-        <h1>{{top_banner}}</h1>
-     </div>
-    <div id="image-container">
-        <img src="{{photo.path}}" alt="{{ photo.name }}">
+    <div id="loader"><div class="spinner"></div></div>
+
+    <div id="unregistered">
+        <h1>FrameIT</h1>
+        <p class="subtitle">This device is not registered as a frame.</p>
+        <ol>
+            <li>Open the admin panel on your FrameIT server</li>
+            <li>Go to <strong>Tokens</strong> and generate a registration token</li>
+            <li>Run the install command on this Raspberry Pi</li>
+        </ol>
+        <a id="admin-link" href="#" class="admin-link">Open Admin Panel &rarr;</a>
+        <p class="bypass-hint">
+            Testing without a Pi? Add <code>?bypass_install=1</code> to the URL to preview content.
+        </p>
     </div>
-    <div id="bottom-banner">
-        <h1>{{bottom_banner}}</h1>
+
+    <div id="root">
+        <div id="top-banner"></div>
+        <div id="content-area">
+            <img id="poster-img" src="" alt="">
+            <div id="trailer-container"></div>
+        </div>
+        <div id="bottom-banner"></div>
     </div>
+
     <script>
-        // Get reference to the image container
-        function updateImage() {
-            setTimeout(() => {window.location.reload();}, 300000); // Convert milliseconds to seconds
+    (function () {
+        var bypass = new URLSearchParams(window.location.search).get('bypass_install') === '1';
+        var frameId = null;
+        var ytPlayer = null;
+        var nextTimer = null;
+
+        // Point admin link at the tokens page on the same origin
+        document.getElementById('admin-link').href = window.location.origin + '/admin/tokens';
+
+        // ── YouTube IFrame API ─────────────────────────────────────────
+        var tag = document.createElement('script');
+        tag.src = 'https://www.youtube.com/player_api';
+        document.head.appendChild(tag);
+
+        window.onYouTubePlayerAPIReady = function () { /* player created on demand */ };
+
+        function loadYouTube(videoId, onEnd) {
+            var container = document.getElementById('trailer-container');
+            container.innerHTML = '';
+            var div = document.createElement('div');
+            div.id = 'yt-player';
+            container.appendChild(div);
+
+            ytPlayer = new YT.Player('yt-player', {
+                videoId: videoId,
+                playerVars: { autoplay: 1, controls: 0, modestbranding: 1, showinfo: 0, rel: 0 },
+                events: {
+                    onReady: function (e) { e.target.mute(); e.target.playVideo(); },
+                    onStateChange: function (e) {
+                        if (e.data === YT.PlayerState.ENDED || e.data === YT.PlayerState.PAUSED) {
+                            onEnd();
+                        }
+                    }
+                }
+            });
         }
-        
-        // Call the function to start updating the image every 240 seconds
-        updateImage();
+
+        // ── Rotation ──────────────────────────────────────────────────
+        function applyRotation(deg) {
+            var root = document.getElementById('root');
+            if (deg === 90 || deg === 270) {
+                root.style.transform = 'rotate(' + deg + 'deg)';
+                root.style.width = '100vh';
+                root.style.height = '100vw';
+                root.style.position = 'fixed';
+                root.style.top = deg === 90 ? '0' : 'auto';
+                root.style.left = deg === 90 ? '100%' : '-100%';
+                root.style.transformOrigin = 'top left';
+            } else {
+                root.style.transform = deg ? 'rotate(' + deg + 'deg)' : '';
+                root.style.width = '';
+                root.style.height = '';
+                root.style.position = '';
+                root.style.top = '';
+                root.style.left = '';
+                root.style.transformOrigin = '';
+            }
+        }
+
+        // ── Render ────────────────────────────────────────────────────
+        function showPoster(data) {
+            clearTimer();
+            if (ytPlayer) { try { ytPlayer.destroy(); } catch(e) {} ytPlayer = null; }
+            document.getElementById('trailer-container').style.display = 'none';
+            document.getElementById('trailer-container').innerHTML = '';
+
+            var img = document.getElementById('poster-img');
+            document.getElementById('top-banner').textContent = data.title_above || '';
+            document.getElementById('bottom-banner').textContent = data.title_below || '';
+            img.onload = function () { img.style.display = 'block'; hideLoader(); };
+            img.onerror = function () { fetchNext(); };
+            img.src = data.url;
+
+            nextTimer = setTimeout(fetchNext, data.interval_seconds * 1000);
+        }
+
+        function showTrailer(data) {
+            clearTimer();
+            document.getElementById('poster-img').style.display = 'none';
+            document.getElementById('top-banner').textContent = data.title || '';
+            document.getElementById('bottom-banner').textContent = 'Now Playing';
+
+            var container = document.getElementById('trailer-container');
+            container.style.display = 'block';
+            hideLoader();
+
+            if (window.YT && YT.Player) {
+                loadYouTube(data.youtube_id, fetchNext);
+            } else {
+                window.onYouTubePlayerAPIReady = function () {
+                    loadYouTube(data.youtube_id, fetchNext);
+                };
+            }
+        }
+
+        function showUnregistered() {
+            document.getElementById('loader').style.display = 'none';
+            document.getElementById('unregistered').style.display = 'flex';
+        }
+
+        function hideLoader() {
+            var loader = document.getElementById('loader');
+            if (loader) loader.style.display = 'none';
+        }
+
+        function clearTimer() {
+            if (nextTimer) { clearTimeout(nextTimer); nextTimer = null; }
+        }
+
+        // ── Main fetch loop ───────────────────────────────────────────
+        function fetchNext() {
+            fetch('/api/frames/' + frameId + '/next')
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    applyRotation(data.rotation || 0);
+                    if (data.type === 'poster') {
+                        showPoster(data);
+                    } else if (data.type === 'trailer') {
+                        showTrailer(data);
+                    } else {
+                        hideLoader();
+                        nextTimer = setTimeout(fetchNext, (data.interval_seconds || 60) * 1000);
+                    }
+                })
+                .catch(function () {
+                    nextTimer = setTimeout(fetchNext, 30000);
+                });
+        }
+
+        // ── Checkin — always runs on load ─────────────────────────────
+        function checkin() {
+            fetch('/api/frames/checkin', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ hostname: window.location.hostname, bypass: bypass })
+            })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (!data.registered) {
+                    showUnregistered();
+                    return;
+                }
+                frameId = String(data.frame_id);
+                fetchNext();
+            })
+            .catch(function () {
+                setTimeout(checkin, 10000);
+            });
+        }
+
+        checkin();
+    })();
     </script>
 </body>
 </html>

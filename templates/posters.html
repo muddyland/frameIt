@@ -1,0 +1,305 @@
+{% extends "admin_main.html" %}
+{% block title %}Posters{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+
+    <!-- Default text settings -->
+    <div class="col-12">
+        <div class="card bg-secondary bg-opacity-10 border-secondary">
+            <div class="card-body">
+                <h5 class="card-title mb-1"><i class="fa-solid fa-align-center me-2"></i>Default Banner Text</h5>
+                <p class="text-secondary small mb-3">Used for any poster that has no custom text set. Leave a field blank to show nothing.</p>
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-4">
+                        <label class="form-label">Default Text Above</label>
+                        <input type="text" class="form-control bg-dark text-white border-secondary" id="default-above">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Default Text Below</label>
+                        <input type="text" class="form-control bg-dark text-white border-secondary" id="default-below">
+                    </div>
+                    <div class="col-md-2">
+                        <button class="btn btn-outline-light w-100" onclick="saveDefaults()"><i class="fa-solid fa-floppy-disk me-1"></i>Save Defaults</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upload card -->
+    <div class="col-12">
+        <div class="card bg-secondary bg-opacity-10 border-secondary">
+            <div class="card-body">
+                <h5 class="card-title mb-1"><i class="fa-solid fa-upload me-2"></i>Upload Poster</h5>
+                <p class="text-secondary small mb-3">Leave text fields blank to use the defaults above.</p>
+                <form id="upload-form" class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label">Image File</label>
+                        <input type="file" class="form-control bg-dark text-white border-secondary" id="file-input" accept=".jpg,.jpeg,.png,.webp" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Text Above <span class="text-secondary small">(optional)</span></label>
+                        <input type="text" class="form-control bg-dark text-white border-secondary" id="title-above" placeholder="Leave blank for default">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Text Below <span class="text-secondary small">(optional)</span></label>
+                        <input type="text" class="form-control bg-dark text-white border-secondary" id="title-below" placeholder="Leave blank for default">
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <button type="submit" class="btn btn-primary w-100" id="upload-btn"><i class="fa-solid fa-upload me-1"></i>Upload</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Poster grid -->
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0"><i class="fa-solid fa-images me-2"></i>Library <span id="poster-count" class="badge bg-secondary ms-2"></span></h5>
+            <button class="btn btn-outline-light btn-sm" onclick="loadPosters()"><i class="fa-solid fa-rotate me-1"></i>Refresh</button>
+        </div>
+        <div id="poster-grid" class="row g-3"></div>
+    </div>
+</div>
+
+<!-- Edit modal -->
+<div class="modal fade" id="edit-modal" tabindex="-1" aria-labelledby="edit-modal-label" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content bg-dark text-white border-secondary">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title" id="edit-modal-label"><i class="fa-solid fa-pen me-2"></i>Edit Poster</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-id">
+                <div class="mb-3 text-center">
+                    <img id="edit-preview" src="" alt="" style="max-height:180px;max-width:100%;object-fit:contain;border-radius:4px;">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Text Above <span class="text-secondary small">(leave blank to use default)</span></label>
+                    <input type="text" class="form-control bg-dark text-white border-secondary" id="edit-above">
+                    <div class="form-text text-secondary" id="edit-above-hint"></div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Text Below <span class="text-secondary small">(leave blank to use default)</span></label>
+                    <input type="text" class="form-control bg-dark text-white border-secondary" id="edit-below">
+                    <div class="form-text text-secondary" id="edit-below-hint"></div>
+                </div>
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="edit-active">
+                    <label class="form-check-label" for="edit-active">Active (included in rotation)</label>
+                </div>
+            </div>
+            <div class="modal-footer border-secondary">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveEdit()">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete confirmation modal -->
+<div class="modal fade" id="delete-modal" tabindex="-1" aria-labelledby="delete-modal-label" aria-hidden="true">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content bg-dark text-white border-danger">
+            <div class="modal-header border-danger">
+                <h5 class="modal-title" id="delete-modal-label"><i class="fa-solid fa-trash me-2"></i>Delete Poster?</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-center">
+                <img id="delete-preview" src="" alt="" style="max-height:140px;max-width:100%;object-fit:contain;border-radius:4px;margin-bottom:1rem;">
+                <p class="text-secondary small mb-0">This cannot be undone. The image file will also be removed.</p>
+            </div>
+            <div class="modal-footer border-danger d-flex gap-2">
+                <button type="button" class="btn btn-secondary flex-fill" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger flex-fill" id="delete-confirm-btn" onclick="confirmDelete()">Delete</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var editModal   = new bootstrap.Modal(document.getElementById('edit-modal'));
+var deleteModal = new bootstrap.Modal(document.getElementById('delete-modal'));
+var pendingDeleteId = null;
+var currentDefaults = { default_title_above: '', default_title_below: '' };
+var postersById = {};
+
+// ── Defaults ───────────────────────────────────────────────────────────────
+
+function loadDefaults() {
+    fetch('/api/settings')
+        .then(function(r) { return r.json(); })
+        .then(function(s) {
+            currentDefaults = s;
+            document.getElementById('default-above').value = s.default_title_above || '';
+            document.getElementById('default-below').value = s.default_title_below || '';
+            updateUploadPlaceholders(s);
+        });
+}
+
+function updateUploadPlaceholders(s) {
+    var abovePlaceholder = s.default_title_above ? 'Default: "' + s.default_title_above + '"' : 'Leave blank for no text';
+    var belowPlaceholder = s.default_title_below ? 'Default: "' + s.default_title_below + '"' : 'Leave blank for no text';
+    document.getElementById('title-above').placeholder = abovePlaceholder;
+    document.getElementById('title-below').placeholder = belowPlaceholder;
+}
+
+function saveDefaults() {
+    fetch('/api/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            default_title_above: document.getElementById('default-above').value,
+            default_title_below: document.getElementById('default-below').value,
+        })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(s) {
+        currentDefaults = s;
+        updateUploadPlaceholders(s);
+        showAlert('Default text saved.');
+    })
+    .catch(function() { showAlert('Failed to save defaults.', 'danger'); });
+}
+
+// ── Poster grid ────────────────────────────────────────────────────────────
+
+function titleDisplay(custom, defaultVal, side) {
+    if (custom !== null && custom !== undefined) {
+        return '<span class="text-light">' + (custom || '&nbsp;') + '</span>';
+    }
+    var fallback = defaultVal || ('(no text ' + side + ')');
+    return '<span class="text-secondary fst-italic">↩ ' + fallback + '</span>';
+}
+
+function loadPosters() {
+    fetch('/api/posters')
+        .then(function(r) { return r.json(); })
+        .then(function(posters) {
+            postersById = {};
+            posters.forEach(function(p) { postersById[p.id] = p; });
+            document.getElementById('poster-count').textContent = posters.length;
+            var grid = document.getElementById('poster-grid');
+            if (!posters.length) {
+                grid.innerHTML = '<div class="col text-secondary">No posters yet. Upload one above.</div>';
+                return;
+            }
+            grid.innerHTML = posters.map(function(p) {
+                var badge = p.active
+                    ? '<span class="badge bg-success">Active</span>'
+                    : '<span class="badge bg-secondary">Inactive</span>';
+                return '<div class="col-6 col-sm-4 col-md-3 col-lg-2" id="card-' + p.id + '">' +
+                    '<div class="card bg-dark border-secondary h-100">' +
+                    '<img src="' + p.url + '" class="card-img-top" style="height:200px;object-fit:cover" alt="">' +
+                    '<div class="card-body p-2">' +
+                    '<div class="small text-truncate mb-1">' + titleDisplay(p.title_above, currentDefaults.default_title_above, 'above') + '</div>' +
+                    '<div class="small text-truncate mb-2">' + titleDisplay(p.title_below, currentDefaults.default_title_below, 'below') + '</div>' +
+                    badge +
+                    '</div>' +
+                    '<div class="card-footer p-2 d-flex gap-2 border-secondary">' +
+                    '<button class="btn btn-sm btn-outline-light flex-fill" onclick="openEdit(' + p.id + ')"><i class="fa-solid fa-pen"></i></button>' +
+                    '<button class="btn btn-sm btn-outline-danger" onclick="openDelete(' + p.id + ')"><i class="fa-solid fa-trash"></i></button>' +
+                    '</div></div></div>';
+            }).join('');
+        })
+        .catch(function() { showAlert('Failed to load posters.', 'danger'); });
+}
+
+// ── Edit modal ─────────────────────────────────────────────────────────────
+
+function openEdit(id) {
+    var p = postersById[id];
+    if (!p) return;
+    document.getElementById('edit-id').value = p.id;
+    document.getElementById('edit-preview').src = p.url;
+    document.getElementById('edit-above').value = p.title_above !== null ? (p.title_above || '') : '';
+    document.getElementById('edit-below').value = p.title_below !== null ? (p.title_below || '') : '';
+    document.getElementById('edit-above-hint').textContent =
+        p.title_above === null ? 'Currently using default: "' + (currentDefaults.default_title_above || '') + '"' : '';
+    document.getElementById('edit-below-hint').textContent =
+        p.title_below === null ? 'Currently using default: "' + (currentDefaults.default_title_below || '') + '"' : '';
+    document.getElementById('edit-active').checked = p.active;
+    editModal.show();
+}
+
+function saveEdit() {
+    var id = document.getElementById('edit-id').value;
+    fetch('/api/posters/' + id, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            title_above: document.getElementById('edit-above').value,
+            title_below: document.getElementById('edit-below').value,
+            active: document.getElementById('edit-active').checked,
+        })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function() { editModal.hide(); loadPosters(); showAlert('Poster updated.'); })
+    .catch(function() { showAlert('Failed to save.', 'danger'); });
+}
+
+// ── Delete modal ───────────────────────────────────────────────────────────
+
+function openDelete(id) {
+    var p = postersById[id];
+    if (!p) return;
+    pendingDeleteId = id;
+    document.getElementById('delete-preview').src = p.url;
+    deleteModal.show();
+}
+
+function confirmDelete() {
+    if (!pendingDeleteId) return;
+    var btn = document.getElementById('delete-confirm-btn');
+    btn.disabled = true;
+    btn.textContent = 'Deleting…';
+    fetch('/api/posters/' + pendingDeleteId, { method: 'DELETE' })
+        .then(function() {
+            deleteModal.hide();
+            loadPosters();
+            showAlert('Poster deleted.');
+        })
+        .catch(function() { showAlert('Failed to delete.', 'danger'); })
+        .finally(function() {
+            btn.disabled = false;
+            btn.textContent = 'Delete';
+            pendingDeleteId = null;
+        });
+}
+
+// ── Upload ─────────────────────────────────────────────────────────────────
+
+document.getElementById('upload-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    var file = document.getElementById('file-input').files[0];
+    if (!file) return;
+    var btn = document.getElementById('upload-btn');
+    btn.disabled = true; btn.textContent = 'Uploading...';
+
+    var fd = new FormData();
+    fd.append('file', file);
+    fd.append('title_above', document.getElementById('title-above').value);
+    fd.append('title_below', document.getElementById('title-below').value);
+
+    fetch('/api/posters/upload', { method: 'POST', body: fd })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.error) { showAlert(data.error, 'danger'); return; }
+            showAlert('Poster uploaded successfully.');
+            document.getElementById('upload-form').reset();
+            updateUploadPlaceholders(currentDefaults);
+            loadPosters();
+        })
+        .catch(function() { showAlert('Upload failed.', 'danger'); })
+        .finally(function() { btn.disabled = false; btn.textContent = 'Upload'; });
+});
+
+loadDefaults();
+loadPosters();
+</script>
+{% endblock %}

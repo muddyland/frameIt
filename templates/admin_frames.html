@@ -1,0 +1,538 @@
+{% extends "admin_main.html" %}
+{% block title %}Frames{% endblock %}
+
+{% block content %}
+
+<!-- ── Register a new frame ───────────────────────────────────────────────── -->
+<div class="card bg-secondary bg-opacity-10 border-secondary mb-4">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start mb-1">
+            <h5 class="card-title mb-0"><i class="fa-solid fa-plus-circle me-2"></i>Register New Frame</h5>
+            <button class="btn btn-primary btn-sm" onclick="generateToken()"><i class="fa-solid fa-key me-1"></i>Generate Token</button>
+        </div>
+        <p class="text-secondary small mb-3">Generate a one-time token, then run the install command on your Raspberry Pi.</p>
+        <div id="pending-tokens"></div>
+    </div>
+</div>
+
+<!-- ── Registered frames ─────────────────────────────────────────────────── -->
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h5 class="mb-0"><i class="fa-solid fa-tv me-2"></i>Registered Frames</h5>
+    <div>
+        <button class="btn btn-outline-light btn-sm me-2" onclick="loadAll()"><i class="fa-solid fa-rotate me-1"></i>Refresh</button>
+        <button class="btn btn-outline-danger btn-sm" onclick="cleanupFrames()"><i class="fa-solid fa-broom me-1"></i>Remove Unregistered</button>
+    </div>
+</div>
+<div id="frames-container"><div class="text-secondary">Loading...</div></div>
+
+<!-- ── Install command modal ─────────────────────────────────────────────── -->
+<div class="modal fade" id="install-modal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content bg-dark text-white border-secondary">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title"><i class="fa-solid fa-terminal me-2"></i>Install Agent</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-secondary small">Run this command on the Raspberry Pi as root. The agent will install and register automatically.</p>
+                <div class="input-group">
+                    <input type="text" class="form-control bg-black text-success border-secondary font-monospace small" id="install-cmd" readonly>
+                    <button class="btn btn-outline-light" onclick="copyCmd()"><i class="fa-solid fa-copy me-1"></i>Copy</button>
+                </div>
+                <div id="copy-feedback" class="text-success small mt-2" style="display:none"><i class="fa-solid fa-check me-1"></i>Copied!</div>
+            </div>
+            <div class="modal-footer border-secondary">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Configure modal ───────────────────────────────────────────────────── -->
+<div class="modal fade" id="config-modal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content bg-dark text-white border-secondary">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title" id="config-modal-title"><i class="fa-solid fa-gear me-2"></i>Configure Frame</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="modal-alerts"></div>
+                <input type="hidden" id="cfg-id">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Display Name</label>
+                        <input type="text" class="form-control bg-dark text-white border-secondary" id="cfg-name">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Rotation</label>
+                        <select class="form-select bg-dark text-white border-secondary" id="cfg-rotation">
+                            <option value="0">0°</option>
+                            <option value="90">90°</option>
+                            <option value="180">180°</option>
+                            <option value="270">270°</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Interval (seconds)</label>
+                        <input type="number" class="form-control bg-dark text-white border-secondary" id="cfg-interval" min="10" max="86400">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Content Mode</label>
+                        <select class="form-select bg-dark text-white border-secondary" id="cfg-mode" onchange="togglePinned()">
+                            <option value="pool">Pool (random)</option>
+                            <option value="pinned">Pinned (specific item)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4" id="pinned-type-wrap" style="display:none">
+                        <label class="form-label">Pinned Type</label>
+                        <select class="form-select bg-dark text-white border-secondary" id="cfg-pinned-type" onchange="loadPinnedItems()">
+                            <option value="poster">Poster</option>
+                            <option value="trailer">Trailer</option>
+                        </select>
+                    </div>
+                    <div class="col-12" id="pinned-item-wrap" style="display:none">
+                        <label class="form-label">Pinned Item</label>
+                        <input type="hidden" id="cfg-pinned-id">
+                        <div id="pinned-item-grid" class="row g-2"></div>
+                        <div id="pinned-pagination" class="d-flex justify-content-between align-items-center mt-2" style="display:none!important"></div>
+                    </div>
+                </div>
+
+                <!-- Agent controls (shown only if agent is registered) -->
+                <div id="agent-section" style="display:none" class="mt-4">
+                    <hr class="border-secondary">
+                    <h6 class="mb-3"><i class="fa-solid fa-microchip me-2"></i>Agent Controls</h6>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <div class="card bg-secondary bg-opacity-10 border-secondary" id="sysinfo-card">
+                                <div class="card-body small text-secondary">Loading system info...</div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="d-grid gap-2">
+                                <button class="btn btn-outline-warning btn-sm" onclick="agentAction('system/reboot', 'POST', 'Reboot?')"><i class="fa-solid fa-power-off me-1"></i>Reboot Pi</button>
+                                <button class="btn btn-outline-info btn-sm" onclick="runCmd('system/update', 'apt-get update')"><i class="fa-solid fa-download me-1"></i>apt update</button>
+                                <button class="btn btn-outline-info btn-sm" onclick="runCmd('system/upgrade', 'apt-get upgrade')"><i class="fa-solid fa-arrow-up me-1"></i>apt upgrade</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-12">
+                            <h6 class="text-secondary mb-2">Services</h6>
+                            <div id="services-list" class="d-flex gap-2 flex-wrap"></div>
+                        </div>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <h6 class="text-secondary mb-2">Network</h6>
+                            <div id="network-info" class="small text-secondary mb-2">Loading...</div>
+                            <div class="input-group input-group-sm mb-2">
+                                <input type="text" class="form-control bg-dark text-white border-secondary" id="hostname-input" placeholder="New hostname">
+                                <button class="btn btn-outline-light" onclick="setHostname()">Set Hostname</button>
+                            </div>
+                            <button class="btn btn-sm btn-outline-secondary w-100" data-bs-toggle="collapse" data-bs-target="#wifi-section">Configure WiFi</button>
+                            <div class="collapse mt-2" id="wifi-section">
+                                <div id="wifi-scan-results" class="mb-2 small"></div>
+                                <button class="btn btn-sm btn-outline-light mb-2" onclick="scanWifi()">Scan Networks</button>
+                                <input type="text" class="form-control bg-dark text-white border-secondary form-control-sm mb-2" id="wifi-ssid" placeholder="SSID">
+                                <input type="password" class="form-control bg-dark text-white border-secondary form-control-sm mb-2" id="wifi-pass" placeholder="Password">
+                                <button class="btn btn-sm btn-primary" onclick="connectWifi()">Connect</button>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <h6 class="text-secondary mb-2">Display</h6>
+                            <div id="display-status" class="small text-secondary mb-2">Loading...</div>
+                            <div class="d-flex gap-2 mb-3">
+                                <button class="btn btn-sm btn-outline-light flex-fill" onclick="agentAction('display/on', 'POST', null)"><i class="fa-solid fa-sun me-1"></i>Turn On</button>
+                                <button class="btn btn-sm btn-outline-secondary flex-fill" onclick="agentAction('display/off', 'POST', null)"><i class="fa-solid fa-moon me-1"></i>Turn Off</button>
+                            </div>
+                            <h6 class="text-secondary mb-2">Browser</h6>
+                            <div id="browser-status" class="small text-secondary mb-2">Loading...</div>
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-sm btn-outline-success flex-fill" onclick="agentAction('browser/start', 'POST', null)"><i class="fa-solid fa-play me-1"></i>Start</button>
+                                <button class="btn btn-sm btn-outline-warning flex-fill" onclick="agentAction('browser/restart', 'POST', null)"><i class="fa-solid fa-rotate-right me-1"></i>Restart</button>
+                                <button class="btn btn-sm btn-outline-danger flex-fill" onclick="agentAction('browser/stop', 'POST', null)"><i class="fa-solid fa-stop me-1"></i>Stop</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <pre id="cmd-output" class="bg-black text-success p-2 rounded small" style="height:120px;overflow-y:auto;display:none"></pre>
+                </div>
+            </div>
+            <div class="modal-footer border-secondary">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" onclick="saveConfig()">Save Settings</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Delete confirmation modal ─────────────────────────────────────────── -->
+<div class="modal fade" id="delete-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content bg-dark text-white border-danger">
+            <div class="modal-header border-danger">
+                <h5 class="modal-title"><i class="fa-solid fa-trash me-2"></i>Remove Frame?</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-1">Remove <strong id="delete-frame-name"></strong>?</p>
+                <p class="text-secondary small mb-0">This removes the frame and its history. The agent on the device is not affected.</p>
+            </div>
+            <div class="modal-footer border-danger d-flex gap-2">
+                <button type="button" class="btn btn-secondary flex-fill" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger flex-fill" id="delete-confirm-btn" onclick="confirmDelete()">Remove</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function showModalAlert(msg, type) {
+    type = type || 'success';
+    var el = document.getElementById('modal-alerts');
+    var id = 'malert-' + Date.now();
+    el.innerHTML = '';
+    el.insertAdjacentHTML('beforeend',
+        '<div id="' + id + '" class="alert alert-' + type + ' alert-dismissible fade show py-2 mb-3" role="alert">' +
+        msg + '<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>');
+    setTimeout(function () { var a = document.getElementById(id); if (a) a.remove(); }, 4000);
+}
+
+var configModal  = new bootstrap.Modal(document.getElementById('config-modal'));
+var deleteModal  = new bootstrap.Modal(document.getElementById('delete-modal'));
+var installModal = new bootstrap.Modal(document.getElementById('install-modal'));
+var currentFrameId = null;
+var pendingDeleteId = null;
+var framesById = {};
+
+// ── Token / registration ───────────────────────────────────────────────────
+
+function loadTokens() {
+    fetch('/api/tokens')
+        .then(function(r) { return r.json(); })
+        .then(function(tokens) {
+            var pending = tokens.filter(function(t) { return !t.used_at; });
+            var el = document.getElementById('pending-tokens');
+            if (!pending.length) {
+                el.innerHTML = '<div class="text-secondary small">No pending tokens. Generate one to add a frame.</div>';
+                return;
+            }
+            el.innerHTML = '<div class="list-group">' + pending.map(function(t) {
+                var masked = t.token.substring(0, 8) + '••••••••' + t.token.substring(t.token.length - 4);
+                return '<div class="list-group-item bg-dark border-secondary d-flex align-items-center gap-3">' +
+                    '<i class="fa-solid fa-key text-secondary"></i>' +
+                    '<code class="text-secondary small flex-fill">' + masked + '</code>' +
+                    '<div class="d-flex gap-2">' +
+                    '<button class="btn btn-sm btn-outline-light" onclick="showInstall(\'' + t.install_cmd.replace(/'/g, "\\'") + '\')"><i class="fa-solid fa-terminal me-1"></i>Install Cmd</button>' +
+                    '<button class="btn btn-sm btn-outline-danger" onclick="revokeToken(' + t.id + ')"><i class="fa-solid fa-ban"></i></button>' +
+                    '</div></div>';
+            }).join('') + '</div>';
+        });
+}
+
+function generateToken() {
+    fetch('/api/tokens', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            loadTokens();
+            showInstall(data.install_cmd);
+        })
+        .catch(function() { showAlert('Failed to generate token.', 'danger'); });
+}
+
+function showInstall(cmd) {
+    document.getElementById('install-cmd').value = cmd;
+    document.getElementById('copy-feedback').style.display = 'none';
+    installModal.show();
+}
+
+function copyCmd() {
+    navigator.clipboard.writeText(document.getElementById('install-cmd').value).then(function() {
+        document.getElementById('copy-feedback').style.display = 'block';
+    });
+}
+
+function revokeToken(id) {
+    fetch('/api/tokens/' + id, { method: 'DELETE' })
+        .then(function() { loadTokens(); showAlert('Token revoked.'); })
+        .catch(function() { showAlert('Failed to revoke token.', 'danger'); });
+}
+
+// ── Frames list ────────────────────────────────────────────────────────────
+
+function loadFrames() {
+    fetch('/api/frames')
+        .then(function(r) { return r.json(); })
+        .then(function(frames) {
+            framesById = {};
+            frames.forEach(function(f) { framesById[f.id] = f; });
+            var c = document.getElementById('frames-container');
+            if (!frames.length) {
+                c.innerHTML = '<div class="text-secondary">No frames registered yet. Generate a token above to get started.</div>';
+                return;
+            }
+            c.innerHTML = '<div class="list-group">' + frames.map(function(f) {
+                var agentBadge = f.agent_url
+                    ? '<span class="badge bg-success ms-2"><i class="fa-solid fa-circle-check me-1"></i>Agent</span>'
+                    : '<span class="badge bg-secondary ms-2">No agent</span>';
+                var previewBadge = f.name && f.name.startsWith('[Preview]')
+                    ? ' <span class="badge bg-warning text-dark ms-1" style="font-size:0.65em;vertical-align:middle">Preview</span>'
+                    : '';
+                return '<div class="list-group-item bg-dark text-white border-secondary d-flex align-items-center gap-3">' +
+                    '<div class="flex-fill">' +
+                    '<div class="fw-semibold">' + (f.name || f.ip) + previewBadge + agentBadge + '</div>' +
+                    '<div class="small text-secondary">' + f.ip + ' &bull; ' + f.rotation + '° &bull; ' + f.interval_seconds + 's &bull; ' + f.content_mode + '</div>' +
+                    '</div>' +
+                    '<button class="btn btn-sm btn-outline-light me-1" onclick="openConfig(' + f.id + ')"><i class="fa-solid fa-gear me-1"></i>Configure</button>' +
+                    '<button class="btn btn-sm btn-outline-danger" onclick="openDelete(' + f.id + ')"><i class="fa-solid fa-trash"></i></button>' +
+                    '</div>';
+            }).join('') + '</div>';
+        });
+}
+
+function loadAll() {
+    loadTokens();
+    loadFrames();
+}
+
+function cleanupFrames() {
+    fetch('/api/frames/cleanup', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            loadAll();
+            showAlert(d.removed ? 'Removed ' + d.removed + ' unregistered frame' + (d.removed === 1 ? '' : 's') + '.' : 'No unregistered frames found.');
+        })
+        .catch(function() { showAlert('Cleanup failed.', 'danger'); });
+}
+
+// ── Delete ─────────────────────────────────────────────────────────────────
+
+function openDelete(id) {
+    var f = framesById[id];
+    if (!f) return;
+    pendingDeleteId = id;
+    document.getElementById('delete-frame-name').textContent = f.name || f.ip;
+    deleteModal.show();
+}
+
+function confirmDelete() {
+    if (!pendingDeleteId) return;
+    var btn = document.getElementById('delete-confirm-btn');
+    btn.disabled = true;
+    btn.textContent = 'Removing…';
+    fetch('/api/frames/' + pendingDeleteId, { method: 'DELETE' })
+        .then(function() { deleteModal.hide(); loadAll(); showAlert('Frame removed.'); })
+        .catch(function() { showAlert('Failed to remove frame.', 'danger'); })
+        .finally(function() { btn.disabled = false; btn.textContent = 'Remove'; pendingDeleteId = null; });
+}
+
+// ── Configure modal ────────────────────────────────────────────────────────
+
+function openConfig(id) {
+    var f = framesById[id];
+    if (!f) return;
+    currentFrameId = f.id;
+    document.getElementById('cfg-id').value = f.id;
+    document.getElementById('cfg-name').value = f.name || '';
+    document.getElementById('cfg-rotation').value = f.rotation;
+    document.getElementById('cfg-interval').value = f.interval_seconds;
+    document.getElementById('cfg-mode').value = f.content_mode;
+    document.getElementById('cfg-pinned-type').value = f.pinned_type || 'poster';
+    document.getElementById('config-modal-title').innerHTML = '<i class="fa-solid fa-gear me-2"></i>Configure: ' + (f.name || f.ip);
+    document.getElementById('modal-alerts').innerHTML = '';
+    togglePinned(f.pinned_id);
+    document.getElementById('agent-section').style.display = f.agent_url ? 'block' : 'none';
+    if (f.agent_url) loadAgentInfo();
+    configModal.show();
+}
+
+function togglePinned(selectedId) {
+    var pinned = document.getElementById('cfg-mode').value === 'pinned';
+    document.getElementById('pinned-type-wrap').style.display = pinned ? 'block' : 'none';
+    document.getElementById('pinned-item-wrap').style.display = pinned ? 'block' : 'none';
+    if (pinned) loadPinnedItems(selectedId);
+}
+
+var _pinnedItems = [];
+var _pinnedPage  = 0;
+var PINNED_PAGE_SIZE = 8;
+
+function loadPinnedItems(selectedId) {
+    var type = document.getElementById('cfg-pinned-type').value;
+    fetch(type === 'poster' ? '/api/posters' : '/api/trailers')
+        .then(function(r) { return r.json(); })
+        .then(function(items) {
+            _pinnedItems = items.map(function(i) {
+                return {
+                    id: i.id,
+                    imgSrc: type === 'poster' ? i.url : 'https://img.youtube.com/vi/' + i.youtube_id + '/mqdefault.jpg',
+                    label: type === 'poster' ? (i.title_above || i.filename) : i.title,
+                };
+            });
+            // Jump to the page that contains the selected item
+            var targetId = selectedId || (_pinnedItems.length ? _pinnedItems[0].id : null);
+            if (targetId) {
+                var idx = _pinnedItems.findIndex(function(i) { return i.id === targetId; });
+                _pinnedPage = idx >= 0 ? Math.floor(idx / PINNED_PAGE_SIZE) : 0;
+            } else {
+                _pinnedPage = 0;
+            }
+            renderPinnedPage();
+            if (targetId) selectPinnedItem(targetId);
+        });
+}
+
+function renderPinnedPage() {
+    var start = _pinnedPage * PINNED_PAGE_SIZE;
+    var page  = _pinnedItems.slice(start, start + PINNED_PAGE_SIZE);
+    var totalPages = Math.ceil(_pinnedItems.length / PINNED_PAGE_SIZE);
+
+    document.getElementById('pinned-item-grid').innerHTML = page.map(function(i) {
+        return '<div class="col-4 col-md-3">' +
+            '<div class="pinned-card card bg-dark border-secondary h-100" data-id="' + i.id + '" ' +
+            'onclick="selectPinnedItem(' + i.id + ')" style="cursor:pointer">' +
+            '<img src="' + i.imgSrc + '" class="card-img-top" style="height:80px;object-fit:cover">' +
+            '<div class="card-body p-1"><div class="text-truncate" style="font-size:0.7rem;color:#ccc">' + i.label + '</div></div>' +
+            '</div></div>';
+    }).join('');
+
+    var pag = document.getElementById('pinned-pagination');
+    if (totalPages <= 1) {
+        pag.style.display = 'none';
+    } else {
+        pag.style.display = 'flex';
+        pag.innerHTML =
+            '<button class="btn btn-sm btn-outline-secondary" onclick="pinnedChangePage(-1)" ' + (_pinnedPage === 0 ? 'disabled' : '') + '>' +
+            '<i class="fa-solid fa-chevron-left"></i></button>' +
+            '<span class="small text-secondary">Page ' + (_pinnedPage + 1) + ' of ' + totalPages + '</span>' +
+            '<button class="btn btn-sm btn-outline-secondary" onclick="pinnedChangePage(1)" ' + (_pinnedPage >= totalPages - 1 ? 'disabled' : '') + '>' +
+            '<i class="fa-solid fa-chevron-right"></i></button>';
+    }
+
+    // Re-apply selection highlight for items visible on this page
+    var selectedId = parseInt(document.getElementById('cfg-pinned-id').value);
+    if (selectedId) selectPinnedItem(selectedId);
+}
+
+function pinnedChangePage(delta) {
+    _pinnedPage += delta;
+    renderPinnedPage();
+}
+
+function selectPinnedItem(id) {
+    document.getElementById('cfg-pinned-id').value = id;
+    document.querySelectorAll('.pinned-card').forEach(function(card) {
+        var mine = parseInt(card.dataset.id) === id;
+        card.classList.toggle('border-primary', mine);
+        card.classList.toggle('border-secondary', !mine);
+    });
+}
+
+function saveConfig() {
+    var id = document.getElementById('cfg-id').value;
+    var mode = document.getElementById('cfg-mode').value;
+    var body = {
+        name: document.getElementById('cfg-name').value,
+        rotation: parseInt(document.getElementById('cfg-rotation').value),
+        interval_seconds: parseInt(document.getElementById('cfg-interval').value),
+        content_mode: mode,
+        pinned_type: mode === 'pinned' ? document.getElementById('cfg-pinned-type').value : null,
+        pinned_id: mode === 'pinned' ? parseInt(document.getElementById('cfg-pinned-id').value) : null,
+    };
+    fetch('/api/frames/' + id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        .then(function(r) { return r.json(); })
+        .then(function() { loadFrames(); showModalAlert('Frame settings saved.'); })
+        .catch(function() { showModalAlert('Failed to save settings.', 'danger'); });
+}
+
+// ── Agent helpers ──────────────────────────────────────────────────────────
+
+function agentFetch(path, method, body) {
+    return fetch('/api/frames/' + currentFrameId + '/agent/' + path, {
+        method: method || 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        body: body ? JSON.stringify(body) : undefined,
+    }).then(function(r) { return r.json(); });
+}
+
+function loadAgentInfo() {
+    agentFetch('system/info').then(function(d) {
+        document.getElementById('sysinfo-card').innerHTML =
+            '<div class="card-body small"><div class="row text-center">' +
+            '<div class="col"><div class="fs-5 fw-bold">' + (d.cpu_percent || '--') + '%</div><div class="text-secondary">CPU</div></div>' +
+            '<div class="col"><div class="fs-5 fw-bold">' + (d.ram_percent || '--') + '%</div><div class="text-secondary">RAM</div></div>' +
+            '<div class="col"><div class="fs-5 fw-bold">' + (d.disk_percent || '--') + '%</div><div class="text-secondary">Disk</div></div>' +
+            (d.cpu_temp ? '<div class="col"><div class="fs-5 fw-bold">' + d.cpu_temp + '°C</div><div class="text-secondary">Temp</div></div>' : '') +
+            '</div></div>';
+    }).catch(function() {
+        document.getElementById('sysinfo-card').innerHTML = '<div class="card-body small text-danger">Agent unreachable</div>';
+    });
+    agentFetch('system/services').then(function(d) {
+        document.getElementById('services-list').innerHTML = Object.entries(d).map(function(kv) {
+            return '<span class="badge bg-' + (kv[1] ? 'success' : 'danger') + '">' + kv[0] + '</span>';
+        }).join('');
+    }).catch(function() {});
+    agentFetch('network/status').then(function(d) {
+        document.getElementById('network-info').innerHTML =
+            '<strong>' + (d.hostname || '') + '</strong><br>' +
+            (d.interfaces || []).map(function(i) { return i.name + ': ' + i.ip; }).join('<br>') +
+            (d.ssid ? '<br>WiFi: ' + d.ssid : '');
+        if (d.hostname) document.getElementById('hostname-input').placeholder = d.hostname;
+    }).catch(function() {});
+    agentFetch('display').then(function(d) {
+        document.getElementById('display-status').textContent = 'Display: ' + (d.on ? 'On' : 'Off');
+    }).catch(function() {});
+    agentFetch('browser/status').then(function(d) {
+        document.getElementById('browser-status').textContent = 'Chromium: ' + (d.running ? 'Running' : 'Stopped');
+    }).catch(function() {});
+}
+
+function agentAction(path, method, confirmMsg) {
+    if (confirmMsg && !confirm(confirmMsg)) return;
+    agentFetch(path, method || 'POST').then(function() { showModalAlert('Done.'); loadAgentInfo(); })
+        .catch(function() { showModalAlert('Agent action failed.', 'danger'); });
+}
+
+function runCmd(path, label) {
+    var out = document.getElementById('cmd-output');
+    out.style.display = 'block';
+    out.textContent = 'Running ' + label + '...\n';
+    agentFetch(path, 'POST').then(function(d) {
+        out.textContent += (d.output || d.message || JSON.stringify(d));
+    }).catch(function(e) { out.textContent += '\nError: ' + e; });
+}
+
+function setHostname() {
+    var h = document.getElementById('hostname-input').value.trim();
+    if (!h) return;
+    agentFetch('network/hostname', 'POST', { hostname: h })
+        .then(function() { showModalAlert('Hostname updated. Reboot to apply.'); })
+        .catch(function() { showModalAlert('Failed to set hostname.', 'danger'); });
+}
+
+function scanWifi() {
+    document.getElementById('wifi-scan-results').textContent = 'Scanning...';
+    agentFetch('network/wifi/scan').then(function(d) {
+        document.getElementById('wifi-scan-results').textContent =
+            (d.networks || []).map(function(n) { return n.ssid || n; }).join(', ') || 'No networks found';
+    }).catch(function() { document.getElementById('wifi-scan-results').textContent = 'Scan failed'; });
+}
+
+function connectWifi() {
+    var ssid = document.getElementById('wifi-ssid').value;
+    var pass = document.getElementById('wifi-pass').value;
+    if (!ssid) return;
+    agentFetch('network/wifi/connect', 'POST', { ssid: ssid, password: pass })
+        .then(function() { showModalAlert('WiFi connection initiated.'); })
+        .catch(function() { showModalAlert('Failed to connect.', 'danger'); });
+}
+
+loadAll();
+</script>
+{% endblock %}

@@ -1,0 +1,109 @@
+{% extends "admin_main.html" %}
+{% block title %}Tokens{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="mb-0"><i class="fa-solid fa-key me-2"></i>Registration Tokens</h2>
+    <button class="btn btn-primary" onclick="generateToken()"><i class="fa-solid fa-plus me-1"></i>Generate Token</button>
+</div>
+
+<div class="mb-3 text-secondary small">
+    Tokens are used to register the FrameIT agent on a Raspberry Pi. Each token is single-use.
+    Generate a token, copy the install command, and run it on the Pi as root.
+</div>
+
+<div id="tokens-container"><div class="text-secondary">Loading...</div></div>
+
+<!-- Install command modal -->
+<div class="modal fade" id="install-modal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content bg-dark text-white border-secondary">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title"><i class="fa-solid fa-terminal me-2"></i>Install Agent</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-secondary small">Run this command on the Raspberry Pi as root. The agent will be installed and automatically register with this server.</p>
+                <div class="input-group">
+                    <input type="text" class="form-control bg-black text-success border-secondary font-monospace small" id="install-cmd" readonly>
+                    <button class="btn btn-outline-light" onclick="copyCmd()"><i class="fa-solid fa-copy me-1"></i>Copy</button>
+                </div>
+                <div id="copy-feedback" class="text-success small mt-2" style="display:none">Copied to clipboard!</div>
+            </div>
+            <div class="modal-footer border-secondary">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var installModal = new bootstrap.Modal(document.getElementById('install-modal'));
+
+function loadTokens() {
+    fetch('/api/tokens')
+        .then(function(r) { return r.json(); })
+        .then(function(tokens) {
+            var c = document.getElementById('tokens-container');
+            if (!tokens.length) {
+                c.innerHTML = '<div class="text-secondary">No tokens yet. Generate one to get started.</div>';
+                return;
+            }
+            c.innerHTML = '<div class="table-responsive"><table class="table table-dark table-hover align-middle">' +
+                '<thead><tr><th>Token</th><th>Created</th><th>Status</th><th>Frame</th><th></th></tr></thead><tbody>' +
+                tokens.map(function(t) {
+                    var status = t.used_at
+                        ? '<span class="badge bg-secondary">Used</span>'
+                        : '<span class="badge bg-success">Available</span>';
+                    var masked = t.token.substring(0, 8) + '••••••••' + t.token.substring(t.token.length - 4);
+                    var actions = !t.used_at
+                        ? '<div class="d-flex gap-2">' +
+                          '<button class="btn btn-sm btn-outline-light" onclick="showInstall(\'' + t.install_cmd.replace(/'/g, "\\'") + '\')"><i class="fa-solid fa-terminal me-1"></i>Install Cmd</button>' +
+                          '<button class="btn btn-sm btn-outline-danger" onclick="revokeToken(' + t.id + ')"><i class="fa-solid fa-ban me-1"></i>Revoke</button>' +
+                          '</div>'
+                        : '<span class="text-secondary small">Frame #' + (t.frame_id || '?') + '</span>';
+                    return '<tr><td class="font-monospace small">' + masked + '</td>' +
+                        '<td class="small text-secondary">' + new Date(t.created_at).toLocaleString() + '</td>' +
+                        '<td>' + status + '</td>' +
+                        '<td class="small">' + (t.frame_id ? 'Frame #' + t.frame_id : '—') + '</td>' +
+                        '<td>' + actions + '</td></tr>';
+                }).join('') +
+                '</tbody></table></div>';
+        });
+}
+
+function generateToken() {
+    fetch('/api/tokens', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            loadTokens();
+            showInstall(data.install_cmd);
+        })
+        .catch(function() { showAlert('Failed to generate token.', 'danger'); });
+}
+
+function showInstall(cmd) {
+    document.getElementById('install-cmd').value = cmd;
+    document.getElementById('copy-feedback').style.display = 'none';
+    installModal.show();
+}
+
+function copyCmd() {
+    var input = document.getElementById('install-cmd');
+    navigator.clipboard.writeText(input.value).then(function() {
+        document.getElementById('copy-feedback').style.display = 'block';
+    });
+}
+
+function revokeToken(id) {
+    if (!confirm('Revoke this token?')) return;
+    fetch('/api/tokens/' + id, { method: 'DELETE' })
+        .then(function() { loadTokens(); showAlert('Token revoked.'); })
+        .catch(function() { showAlert('Failed to revoke token.', 'danger'); });
+}
+
+loadTokens();
+</script>
+{% endblock %}

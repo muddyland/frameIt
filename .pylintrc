@@ -1,0 +1,44 @@
+[MASTER]
+# Add the project root so pylint can resolve local imports
+init-hook='import sys; sys.path.insert(0, ".")'
+
+[MESSAGES CONTROL]
+disable =
+    # SQLAlchemy column attributes are dynamically generated — pylint cannot
+    # see them at static analysis time.
+    no-member,
+
+    # Model classes intentionally have no public methods beyond to_dict().
+    too-few-public-methods,
+
+    # Flask route functions are called by the framework, not directly.
+    # Unused import warnings for 'app' re-exports are noise.
+    unused-import,
+
+    # Standard Flask pattern: import-outside-toplevel in app factories.
+    import-outside-toplevel,
+
+    # We use subprocess intentionally for system control.
+    subprocess-run-check,
+
+    # Logging via print() is acceptable in this project.
+    print-used
+
+[FORMAT]
+max-line-length = 120
+
+[DESIGN]
+# Agent and main.py have many routes — relax these limits.
+max-args = 8
+max-attributes = 12
+max-public-methods = 30
+
+[SIMILARITIES]
+# Flask route boilerplate looks similar but is intentional.
+min-similarity-lines = 8
+ignore-imports = yes
+
+[TYPECHECK]
+# SQLAlchemy and Flask-SQLAlchemy generate attributes dynamically.
+ignored-modules = sqlalchemy, flask_sqlalchemy
+ignored-classes = SQLAlchemy, scoped_session

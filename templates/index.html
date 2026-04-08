@@ -1,11 +1,68 @@
-{% extends 'admin_main.html' %}
+{% extends "admin_main.html" %}
+{% block title %}Dashboard{% endblock %}
 
-{% block title %}Home{% endblock %}
 {% block content %}
-<div class="container mt-5">
-    <h3 class="text-center">What is FrameIT?</h3>
-    <p>
-        A side project for my home theater. I wanted small, low powered Movie posters. All the solutions out there suck. So I built my own.
-    </p>
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="mb-0">Frames</h2>
+    <button class="btn btn-outline-light btn-sm" onclick="loadFrames()"><i class="fa-solid fa-rotate me-1"></i>Refresh</button>
 </div>
+<div id="frames-container"><div class="text-secondary">Loading...</div></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function timeSince(isoStr) {
+    if (!isoStr) return 'Never';
+    var diff = Math.floor((Date.now() - new Date(isoStr + 'Z').getTime()) / 1000);
+    if (diff < 60) return diff + 's ago';
+    if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+    if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+    return Math.floor(diff / 86400) + 'd ago';
+}
+
+function statusDot(online, title) {
+    var cls = online === null ? 'dot-unknown' : (online ? 'dot-online' : 'dot-offline');
+    return '<span class="status-dot ' + cls + '" title="' + title + '"></span>';
+}
+
+function loadFrames() {
+    fetch('/api/frames')
+        .then(function(r) { return r.json(); })
+        .then(function(frames) {
+            var c = document.getElementById('frames-container');
+            if (!frames.length) {
+                c.innerHTML = '<div class="text-secondary">No frames registered yet. Browse to <code>/</code> from a frame device to register it.</div>';
+                return;
+            }
+            var rows = frames.map(function(f) {
+                var now = Date.now();
+                var frameDiff = f.last_seen ? (now - new Date(f.last_seen + 'Z').getTime()) / 1000 : Infinity;
+                var agentDiff = f.agent_last_seen ? (now - new Date(f.agent_last_seen + 'Z').getTime()) / 1000 : Infinity;
+                var rowCls = frameDiff > f.interval_seconds * 2 ? 'table-danger' : '';
+                var frameOnline = frameDiff < f.interval_seconds * 2;
+                var agentOnline = f.agent_url ? agentDiff < 120 : null;
+                return '<tr class="' + rowCls + '">' +
+                    '<td>' + statusDot(frameOnline, 'Frame ' + (frameOnline ? 'online' : 'offline')) + '</td>' +
+                    '<td>' + (f.name || f.ip) + '</td>' +
+                    '<td><code class="text-secondary">' + f.ip + '</code></td>' +
+                    '<td>' + timeSince(f.last_seen) + '</td>' +
+                    '<td class="text-capitalize">' + f.content_mode + '</td>' +
+                    '<td>' + f.interval_seconds + 's</td>' +
+                    '<td>' + f.rotation + '°</td>' +
+                    '<td>' + statusDot(agentOnline, f.agent_url ? 'Agent ' + (agentOnline ? 'online' : 'offline') : 'No agent') + '</td>' +
+                    '<td><a href="/admin/frames" class="btn btn-outline-secondary btn-sm"><i class="fa-solid fa-gear me-1"></i>Configure</a></td>' +
+                    '</tr>';
+            });
+            c.innerHTML = '<div class="table-responsive"><table class="table table-dark table-hover align-middle">' +
+                '<thead><tr><th></th><th>Name</th><th>IP</th><th>Last Seen</th><th>Mode</th><th>Interval</th><th>Rotation</th><th>Agent</th><th></th></tr></thead>' +
+                '<tbody>' + rows.join('') + '</tbody></table></div>';
+        })
+        .catch(function() {
+            document.getElementById('frames-container').innerHTML = '<div class="text-danger">Failed to load frames.</div>';
+        });
+}
+
+loadFrames();
+setInterval(loadFrames, 30000);
+</script>
 {% endblock %}

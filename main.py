@@ -1,381 +1,641 @@
-import os, sys
-from flask import Flask, render_template, request, Response, jsonify, send_from_directory
-from datetime import datetime
-import requests 
-import subprocess
-import json
+import os
+import re
+import uuid
 import random
+import secrets
+import subprocess
+from datetime import datetime, timezone
 
-# Radarr API endpoint URL (replace with yours)
-RADARR_API_URL = os.environ.get("RADARR_URL", 'http://localhost:7878') + "/api/v3"
-# Radarr API key (replace with yours)
-RADARR_API_KEY = os.environ.get("RADARR_KEY", None)
+def utcnow():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
-# Overseerr API endpoint URL (replace with yours)
-OVERSEERR_API_URL = os.environ.get("OVERSEERR_URL", 'http://localhost:8080') + "/api/v1"
-# Get an API token from your Tautulli instance and store it in a secure way
-OVERSEERR_API_TOKEN = os.environ.get("OVERSEERR_TOKEN", None)
+import requests as http_requests
+from flask import (Flask, render_template, request, jsonify, send_from_directory,
+                   Response, stream_with_context, session, redirect, url_for)
+from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
+from models import db, Poster, Trailer, Frame, FrameLog, RegistrationToken, Settings, AdminUser
 
-STATIC_DIR = './static' 
+STATIC_DIR = './static'
 DATA_DIR = os.environ.get("DATA_DIR", './config')
 IMAGES_DIR = os.environ.get("IMAGES_DIR", './images')
 
-JSON_file = DATA_DIR + '/data.json'
+os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(IMAGES_DIR, exist_ok=True)
+os.makedirs(os.path.join(STATIC_DIR, 'dist'), exist_ok=True)
 
 app = Flask(__name__, static_url_path='/static', static_folder=STATIC_DIR)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(os.path.abspath(DATA_DIR), 'frameit.db')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-def load_json_data():
-    try:
-        with open(JSON_file, 'r') as f:
-            data = json.load(f)
-            return data
-    except FileNotFoundError:
-        print("Error: images.json was not found.")
-        return {"photos" : [], "trailers" : []}
-    except json.JSONDecodeError:
-        print("Error: unable to parse images.json file.")
-        return {"photos" : [], "trailers": []}
+# Persist secret key so sessions survive restarts
+_key_path = os.path.join(DATA_DIR, 'secret.key')
+if os.path.exists(_key_path):
+    with open(_key_path) as _f:
+        _secret = _f.read().strip()
+else:
+    _secret = secrets.token_hex(32)
+    with open(_key_path, 'w') as _f:
+        _f.write(_secret)
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', _secret)
 
-def save_json_data(data):
-    try:
-        with open(JSON_file, 'w') as f:
-            json.dump(data, f)
-    except Exception as e:
-        print(f"Error saving data.json: {e}")
-        
-# Function to store uploaded image
-def upload_image(image_data, filename):
-    # Create ./static/img/ folder if it doesn't exist
-    img_folder = IMAGES_DIR
-    if not os.path.exists(img_folder):
-        os.makedirs(img_folder)
-    
-    # Store the uploaded image in ./static/img/
-    img_path = f"{img_folder}/{filename}"
-    with open(img_path, 'wb') as f:
-        f.write(image_data)
-    
-    return img_path
+db.init_app(app)
 
-def get_radarr_media():
-    print(f"Getting media from {RADARR_API_URL}")
-    endpoint = "/history"
-    params = {
-        "page1" : 0,
-        "pageSize" : 25,
-        "includeMovie" : "true"
-    }
-    url = f"{RADARR_API_URL}{endpoint}"
-    
-    # Get the list of movies from Radarr
-    try:
-        response = requests.get(url, headers={"X-Api-Key": RADARR_API_KEY}, params=params)
-        data  = json.loads(response.text)
-        if data.get('records'):
-            # get a random index from the list of movies
-            index = random.randint(0, len(data["records"]) -1)
-            
-            # Get poster details for the movie at that index
-            data   = data['records'][index]
-            added_date = datetime.strptime(data['date'], '%Y-%m-%dT%H:%M:%SZ').strftime('%B %d, %Y')
-            photos = data['movie']['images']
-            for photo in photos:
-                if photo["coverType"] == "poster":
-                    image_url = photo['remoteUrl']
-                    name = data['movie']['title']
-                    break
-                    
-            
-            if not name and image_url:
-                print(f"{data['movie']['title']} has no poster")
-                return None
-            
-            poster_details = {
-                "name" : name,
-                "path": image_url,
-                "added_date" : added_date
-            }
-            return poster_details
-        else:
-            print("No media found in Radarr")
-            return None
-        
-    except:
-        e = sys.exc_info()
-        print(f"Error getting Radarr media history: {e}")
-        return None
+# ---------------------------------------------------------------------------
+# Auth
+# ---------------------------------------------------------------------------
 
-def get_overseerr_media():
-    print(f"Getting Overseerr media from {OVERSEERR_API_URL}")
-    # Check if media is currently being played
-    media_type = 'movie'
-    endpoint = "/discover/movies/upcoming"
-    url = f"{OVERSEERR_API_URL}{endpoint}"
+_PUBLIC_ENDPOINTS = {
+    'frame', 'manifest', 'frame_checkin', 'frame_next',
+    'agent_register', 'agent_heartbeat', 'install_script', 'send_images',
+    'admin_login', 'admin_logout', 'admin_setup', 'static',
+}
 
-    try:
-        headers = {"X-Api-Key": OVERSEERR_API_TOKEN}
-        response = requests.get(url, headers=headers)
-        
-        # Check if the response was successful
-        if response.status_code != 200:
-            return {"error": "Failed to fetch data. Status code: " + str(response.status_code) + " " + str(response.text)}, 500
 
-        media_data = response.json()
-        random_media_item = random.choice(media_data['results'])
-        poster_url = random_media_item['posterPath']
-        title = random_media_item['title']
-        imdb_url = f"https://image.tmdb.org/t/p/original{poster_url}"
-        
-        return {"media_type": media_type, "name": imdb_url, "path": imdb_url, "media_data": media_data, "title" : title}
-    
-    except requests.exceptions.RequestException as e:
-        print(f"Error: {e}")
-        return None
+@app.before_request
+def check_auth():
+    if request.endpoint is None or request.endpoint in _PUBLIC_ENDPOINTS:
+        return
+    # Already authenticated — fast path, no DB query
+    if session.get('admin_user'):
+        return
+    # First-run: no users exist yet
+    if AdminUser.query.count() == 0:
+        return redirect(url_for('admin_setup'))
+    # Not logged in
+    if request.path.startswith('/api/'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    return redirect(url_for('admin_login', next=request.path))
 
-# Function to update images.json with new image path
-def update_photos_json(new_img_path):
-    data = load_json_data()
-        
-    if new_img_path in [i['name'] for i in data['photos']]:
-        raise Exception(f"Image {new_img_path} already exists.")
-    new_image = {
-        "name": os.path.basename(new_img_path),
-        "path": new_img_path.replace(IMAGES_DIR, '/images')
-    }
-    data['photos'].append(new_image)
-    save_json_data(data)
 
-# Function to update images.json with new image path
-def update_trailer_json(new_trailer):
-    data = load_json_data()
-    if not new_trailer.get('id') or not new_trailer.get('name'):
-        raise Exception("Trailer ID and Name are required.")
-    if new_trailer['id'] in [i['id'] for i in data['trailers']]:
-        raise Exception(f"Trailer {new_trailer['id']} already exists.")
-    new_image = {
-        "name": new_trailer['name'],
-        "id": new_trailer['id']
-    }
-    data['trailers'].append(new_image)
-    save_json_data(data) 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
-def history(request, source, object):
-    data = load_json_data()
-    data['frames'][request.remote_addr] = {
-        "last_played" : object,
-        "source" : source
-    }
-    save_json_data(data)
-    
-def get_random():
-    """
-    Returns a random image from the 'images.json' file.
-    """
-    print("Getting random poster from local storage")
-    images = load_json_data()
-    
-    # If 'images.json' exists and has photos, return one at random
-    if len(images['photos']) > 0:
-        # Shuffle the list of images
-        random.shuffle(images['photos'])
+def parse_youtube_id(raw):
+    """Accept a full YouTube URL or a bare 11-character video ID."""
+    for pat in [r'(?:v=|youtu\.be/)([A-Za-z0-9_-]{11})', r'^([A-Za-z0-9_-]{11})$']:
+        m = re.search(pat, raw.strip())
+        if m:
+            return m.group(1)
+    return None
 
-        # Select a random index from the shuffled list
-        index = random.randrange(len(images['photos']))        
-        image = images['photos'][index]
-        image['top_banner'] = "Now Playing"
-        image['bottom_banner'] = "Tickets Available Now"
-        return image
-    
-    # If 'images.json' exists but has no photos, return an empty list
-    elif len(images['photos']) == 0:
-        return {"path" : "/static/img/no-image.jpg", "name" : "No images are preset", "top_banner" : "No Images", "bottom_banner" : "Please add some images"}
-    
-    else:
-        return {'error': 'Error returning an image...'}
 
-@app.route('/' , methods=['GET'])
+def allowed_image(filename):
+    return filename.rsplit('.', 1)[-1].lower() in {'jpg', 'jpeg', 'png', 'webp'}
+
+
+def get_settings():
+    """Return the singleton Settings row, creating it with defaults if absent."""
+    s = db.session.get(Settings, 1)
+    if not s:
+        s = Settings(id=1, default_title_above='Now Playing', default_title_below='')
+        db.session.add(s)
+        db.session.commit()
+    return s
+
+
+# ---------------------------------------------------------------------------
+# Frame display
+# ---------------------------------------------------------------------------
+
+@app.route('/')
 def frame():
-    
-    # Random choice for showing a picture, or getting one from overseerr
-    sources = []
-    
-    if RADARR_API_KEY and RADARR_API_URL:
-        sources.append('radarr')
-    if OVERSEERR_API_TOKEN and OVERSEERR_API_URL:
-        sources.append('overseerr')
-    if load_json_data()['photos']:
-        sources.append('db')
-    if load_json_data()['trailers']:
-        sources.append('trailers')
-    
-    if sources:
-        # Get a random choice of the above sources
-        random.shuffle(sources)
-        print(f"Sources: {sources}")
-        
-        choice = random.choice(sources)
-        # If choice is 'db' then get a picture from the database, else get one from overseerr
-        if choice == 'overseerr':
-            photo  = get_overseerr_media()
-            if not photo:
-                photo = get_random()
-                top_banner = photo['top_banner']
-                bottom_banner = photo['bottom_banner']
-            else:
-                top_banner = photo.get("title", "Unknown")
-                bottom_banner = "Coming Soon"
-        elif choice == 'radarr':
-            photo   = get_radarr_media()
-            if not photo:
-                photo = get_random()
-                top_banner = photo['top_banner']
-                bottom_banner = photo['bottom_banner']
-            else:
-                top_banner  = "Recently Added"
-                bottom_banner  = photo.get('added_date', "Watch Now")
-        elif choice == 'trailers':
-            trailers = load_json_data()['trailers']
-            random.shuffle(trailers)
-            video = random.choice(trailers)
-            id = video['id']
-            name = video['name']
-            return render_template('trailer.html', video_id=id, top_banner=name, bottom_banner="Now Playing")
-        else:
-            photo = get_random()
-            top_banner = photo['top_banner']
-            bottom_banner = photo['bottom_banner']
-    else:
-        photo = get_random()
-        top_banner = photo['top_banner']
-        bottom_banner = photo['bottom_banner']
-    
-    return render_template('frame.html', photo=photo, top_banner=top_banner, bottom_banner=bottom_banner)
+    return render_template('frame.html')
 
-@app.route('/trailer', methods=["GET"])
-def trailer():
-    return render_template('trailer.html', bottom_banner="", top_banner="")
 
-@app.route('/admin')
-def index():
-    return render_template('index.html')
-
-@app.route('/admin/upload', methods=['GET'])
-def upload_html():
-    return render_template('upload.html')
-
-@app.route('/admin/list', methods=['GET'])
-def list_html():
-    return render_template('list.html')
-
-#Needed for PWA
 @app.route('/manifest.json')
 def manifest():
-    manifest_json = {
+    return jsonify({
         "name": "FrameIT",
         "short_name": "FrameIT",
         "start_url": "/",
         "display": "standalone",
-        "background_color": "#ffffff",
-        "theme_color": "#ff0000",
-    }
-    return jsonify(manifest_json)
+        "background_color": "#000000",
+        "theme_color": "#000000",
+    })
 
-@app.route('/api/images', methods=['GET'])
-def get_images():
-    """
-    Returns a list of files stored in 'images.json'.
-    
-    The JSON file is expected to be in the following format:
 
-    {"photos" : [{"name" : "Photo1", "path" : "filename123.jpg"}]}
+# ---------------------------------------------------------------------------
+# Frame API — checkin + next content
+# ---------------------------------------------------------------------------
 
-    Returns:
-        A Flask Response object with a JSON payload containing the list of files.
-    """
-    images = load_json_data()
-    
-    # If 'images.json' exists, return its contents as JSON
-    if images['photos']:
-        return jsonify(images['photos'])
-    
-    # If 'images.json' does not exist or has no photos, return an empty list
+@app.route('/api/frames/checkin', methods=['POST'])
+def frame_checkin():
+    body = request.get_json(silent=True) or {}
+    ip = request.remote_addr
+    bypass = body.get('bypass', False)
+
+    frame = Frame.query.filter_by(ip=ip).first()
+
+    if not frame:
+        if bypass:
+            # Preview/bypass mode — create a temporary anonymous frame
+            frame = Frame(ip=ip, name=f'[Preview] {body.get("hostname", ip)}')
+            db.session.add(frame)
+            db.session.commit()
+        else:
+            return jsonify({'registered': False})
+
+    frame.last_seen = utcnow()
+    db.session.commit()
+    return jsonify({
+        'registered': True,
+        'frame_id': frame.id,
+        'interval_seconds': frame.interval_seconds,
+        'rotation': frame.rotation,
+    })
+
+
+@app.route('/api/frames/<int:frame_id>/next', methods=['GET'])
+def frame_next(frame_id):
+    frame = Frame.query.get_or_404(frame_id)
+    frame.last_seen = utcnow()
+    db.session.commit()
+
+    content = None
+
+    if frame.content_mode == 'pinned' and frame.pinned_type and frame.pinned_id:
+        if frame.pinned_type == 'poster':
+            content = Poster.query.filter_by(id=frame.pinned_id, active=True).first()
+            if content:
+                content = ('poster', content)
+        elif frame.pinned_type == 'trailer':
+            content = Trailer.query.filter_by(id=frame.pinned_id, active=True).first()
+            if content:
+                content = ('trailer', content)
+
+    if not content:
+        # Pool mode — collect all active items and pick one randomly
+        posters = [(Poster, p) for p in Poster.query.filter_by(active=True).all()]
+        trailers = [(Trailer, t) for t in Trailer.query.filter_by(active=True).all()]
+        pool = [('poster', p) for _, p in posters] + [('trailer', t) for _, t in trailers]
+        if pool:
+            content = random.choice(pool)
+
+    if not content:
+        return jsonify({'type': 'empty', 'rotation': frame.rotation, 'interval_seconds': frame.interval_seconds})
+
+    content_type, item = content
+
+    log = FrameLog(frame_id=frame.id, content_type=content_type, content_id=item.id)
+    db.session.add(log)
+    db.session.commit()
+
+    base = {'rotation': frame.rotation, 'interval_seconds': frame.interval_seconds}
+    if content_type == 'poster':
+        settings = get_settings()
+        title_above = item.title_above if item.title_above is not None else settings.default_title_above
+        title_below = item.title_below if item.title_below is not None else settings.default_title_below
+        return jsonify({**base, 'type': 'poster', 'id': item.id,
+                        'url': f'/images/{item.filename}',
+                        'title_above': title_above or '',
+                        'title_below': title_below or ''})
     else:
-        return jsonify({'error': 'No images found'}), 404
+        return jsonify({**base, 'type': 'trailer', 'id': item.id,
+                        'youtube_id': item.youtube_id, 'title': item.title})
 
-@app.route('/api/images', methods=['POST'])
-def add_image():
-    """
-    Adds a new image to the 'images.json' file.
 
-    The request body is expected to be in JSON format with the following structure:
+# ---------------------------------------------------------------------------
+# Poster API
+# ---------------------------------------------------------------------------
 
-    {
-      "name": "Photo1",
-      "path": "filename123.jpg"
-    }
+@app.route('/api/posters', methods=['GET'])
+def get_posters():
+    posters = Poster.query.order_by(Poster.sort_order, Poster.created_at).all()
+    return jsonify([p.to_dict() for p in posters])
 
-    Returns:
-        A Flask Response object with a JSON payload containing the updated list of files.
-    """
+
+@app.route('/api/posters/upload', methods=['POST'])
+def upload_poster():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    f = request.files['file']
+    if not f.filename or not allowed_image(f.filename):
+        return jsonify({'error': 'File must be jpg, jpeg, png, or webp'}), 400
+
+    filename = f'{uuid.uuid4().hex}_{secure_filename(f.filename)}'
+    f.save(os.path.join(IMAGES_DIR, filename))
+
+    poster = Poster(
+        filename=filename,
+        title_above=request.form.get('title_above', '').strip() or None,
+        title_below=request.form.get('title_below', '').strip() or None,
+        active=request.form.get('active', 'true').lower() != 'false',
+    )
+    db.session.add(poster)
+    db.session.commit()
+    return jsonify(poster.to_dict()), 201
+
+
+@app.route('/api/posters/<int:poster_id>', methods=['PATCH'])
+def update_poster(poster_id):
+    poster = Poster.query.get_or_404(poster_id)
+    body = request.get_json(silent=True) or {}
+    if 'title_above' in body:
+        poster.title_above = body['title_above'].strip() or None
+    if 'title_below' in body:
+        poster.title_below = body['title_below'].strip() or None
+    if 'active' in body:
+        poster.active = bool(body['active'])
+    if 'sort_order' in body:
+        poster.sort_order = int(body['sort_order'])
+    db.session.commit()
+    return jsonify(poster.to_dict())
+
+
+@app.route('/api/posters/<int:poster_id>', methods=['DELETE'])
+def delete_poster(poster_id):
+    poster = Poster.query.get_or_404(poster_id)
+    filepath = os.path.join(IMAGES_DIR, poster.filename)
+    if os.path.exists(filepath):
+        os.remove(filepath)
+    db.session.delete(poster)
+    db.session.commit()
+    return '', 204
+
+
+# ---------------------------------------------------------------------------
+# Trailer API
+# ---------------------------------------------------------------------------
+
+@app.route('/api/trailers', methods=['GET'])
+def get_trailers():
+    trailers = Trailer.query.order_by(Trailer.created_at).all()
+    return jsonify([t.to_dict() for t in trailers])
+
+
+@app.route('/api/trailers', methods=['POST'])
+def add_trailer():
+    body = request.get_json(silent=True) or {}
+    raw_url = body.get('url', '').strip()
+    title = body.get('title', '').strip()
+    if not raw_url or not title:
+        return jsonify({'error': 'url and title are required'}), 400
+
+    youtube_id = parse_youtube_id(raw_url)
+    if not youtube_id:
+        return jsonify({'error': 'Could not parse a YouTube video ID from the provided URL'}), 400
+
+    existing = Trailer.query.filter_by(youtube_id=youtube_id).first()
+    if existing:
+        return jsonify(existing.to_dict()), 200
+
+    trailer = Trailer(youtube_id=youtube_id, title=title)
+    db.session.add(trailer)
+    db.session.commit()
+    return jsonify(trailer.to_dict()), 201
+
+
+@app.route('/api/trailers/<int:trailer_id>', methods=['PATCH'])
+def update_trailer(trailer_id):
+    trailer = Trailer.query.get_or_404(trailer_id)
+    body = request.get_json(silent=True) or {}
+    if 'title' in body:
+        trailer.title = body['title'].strip()
+    if 'active' in body:
+        trailer.active = bool(body['active'])
+    db.session.commit()
+    return jsonify(trailer.to_dict())
+
+
+@app.route('/api/trailers/<int:trailer_id>', methods=['DELETE'])
+def delete_trailer(trailer_id):
+    trailer = Trailer.query.get_or_404(trailer_id)
+    db.session.delete(trailer)
+    db.session.commit()
+    return '', 204
+
+
+# ---------------------------------------------------------------------------
+# Frame admin API
+# ---------------------------------------------------------------------------
+
+@app.route('/api/frames', methods=['GET'])
+def get_frames():
+    frames = Frame.query.order_by(Frame.name).all()
+    return jsonify([f.to_dict() for f in frames])
+
+
+@app.route('/api/frames/<int:frame_id>', methods=['GET'])
+def get_frame(frame_id):
+    return jsonify(Frame.query.get_or_404(frame_id).to_dict())
+
+
+@app.route('/api/frames/cleanup', methods=['POST'])
+def cleanup_frames():
+    unregistered = Frame.query.filter_by(agent_url=None).all()
+    count = len(unregistered)
+    for frame in unregistered:
+        FrameLog.query.filter_by(frame_id=frame.id).delete()
+        RegistrationToken.query.filter_by(frame_id=frame.id).update({'frame_id': None})
+        db.session.delete(frame)
+    db.session.commit()
+    return jsonify({'removed': count})
+
+
+@app.route('/api/frames/<int:frame_id>', methods=['DELETE'])
+def delete_frame(frame_id):
+    frame = Frame.query.get_or_404(frame_id)
+    FrameLog.query.filter_by(frame_id=frame.id).delete()
+    RegistrationToken.query.filter_by(frame_id=frame.id).update({'frame_id': None})
+    db.session.delete(frame)
+    db.session.commit()
+    return '', 204
+
+
+@app.route('/api/frames/<int:frame_id>', methods=['PATCH'])
+def update_frame(frame_id):
+    frame = Frame.query.get_or_404(frame_id)
+    body = request.get_json(silent=True) or {}
+    if 'name' in body:
+        frame.name = body['name'].strip() or None
+    if 'rotation' in body:
+        if body['rotation'] not in (0, 90, 180, 270):
+            return jsonify({'error': 'rotation must be 0, 90, 180, or 270'}), 400
+        frame.rotation = body['rotation']
+    if 'interval_seconds' in body:
+        frame.interval_seconds = max(10, int(body['interval_seconds']))
+    if 'content_mode' in body:
+        if body['content_mode'] not in ('pool', 'pinned'):
+            return jsonify({'error': 'content_mode must be pool or pinned'}), 400
+        frame.content_mode = body['content_mode']
+    if 'pinned_type' in body:
+        frame.pinned_type = body['pinned_type'] or None
+    if 'pinned_id' in body:
+        frame.pinned_id = body['pinned_id'] or None
+    db.session.commit()
+    return jsonify(frame.to_dict())
+
+
+# ---------------------------------------------------------------------------
+# Agent registration + proxy
+# ---------------------------------------------------------------------------
+
+@app.route('/api/tokens', methods=['GET'])
+def list_tokens():
+    tokens = RegistrationToken.query.order_by(RegistrationToken.created_at.desc()).all()
+    base_url = request.host_url.rstrip('/')
+    result = []
+    for t in tokens:
+        result.append({
+            'id': t.id,
+            'token': t.token,
+            'created_at': t.created_at.isoformat(),
+            'used_at': t.used_at.isoformat() if t.used_at else None,
+            'frame_id': t.frame_id,
+            'install_cmd': f"curl -sSL {base_url}/install.sh | sudo bash -s -- --server {base_url} --token {t.token}",
+        })
+    return jsonify(result)
+
+
+@app.route('/api/tokens', methods=['POST'])
+def create_token():
+    token_value = secrets.token_hex(32)
+    token = RegistrationToken(token=token_value)
+    db.session.add(token)
+    db.session.commit()
+    base_url = request.host_url.rstrip('/')
+    return jsonify({
+        'id': token.id,
+        'token': token.token,
+        'created_at': token.created_at.isoformat(),
+        'install_cmd': f"curl -sSL {base_url}/install.sh | sudo bash -s -- --server {base_url} --token {token.token}",
+    }), 201
+
+
+@app.route('/api/tokens/<int:token_id>', methods=['DELETE'])
+def delete_token(token_id):
+    token = RegistrationToken.query.get_or_404(token_id)
+    if token.used_at:
+        return jsonify({'error': 'Cannot revoke a token that has already been used'}), 400
+    db.session.delete(token)
+    db.session.commit()
+    return '', 204
+
+
+@app.route('/api/agents/register', methods=['POST'])
+def agent_register():
+    body = request.get_json(silent=True) or {}
+    token_value = body.get('token', '').strip()
+    hostname = body.get('hostname', '')
+    port = body.get('port', 5001)
+
+    token = RegistrationToken.query.filter_by(token=token_value).first()
+    if not token:
+        return jsonify({'error': 'Invalid token'}), 401
+    if token.used_at:
+        return jsonify({'error': 'Token already used'}), 401
+
+    ip = request.remote_addr
+    agent_url = f'http://{ip}:{port}'
+
+    frame = Frame.query.filter_by(ip=ip).first()
+    if not frame:
+        frame = Frame(ip=ip, name=hostname)
+        db.session.add(frame)
+    frame.agent_url = agent_url
+    frame.agent_token = token_value
+    frame.agent_last_seen = utcnow()
+    if not frame.name:
+        frame.name = hostname
+
+    token.used_at = utcnow()
+    db.session.flush()
+    token.frame_id = frame.id
+    db.session.commit()
+    return jsonify({'frame_id': frame.id, 'ok': True})
+
+
+@app.route('/api/agents/<int:frame_id>/heartbeat', methods=['POST'])
+def agent_heartbeat(frame_id):
+    frame = Frame.query.get_or_404(frame_id)
+    frame.agent_last_seen = utcnow()
+    db.session.commit()
+    return jsonify({'interval_seconds': frame.interval_seconds, 'rotation': frame.rotation})
+
+
+@app.route('/api/frames/<int:frame_id>/agent/<path:subpath>', methods=['GET', 'POST', 'PATCH', 'DELETE'])
+def agent_proxy(frame_id, subpath):
+    frame = Frame.query.get_or_404(frame_id)
+    if not frame.agent_url:
+        return jsonify({'error': 'No agent registered for this frame'}), 404
+
+    target = f"{frame.agent_url}/{subpath}"
+    headers = {'Authorization': f'Bearer {frame.agent_token}', 'Content-Type': 'application/json'}
+
     try:
-        data = load_json_data()
-        
-        # Get the new image details from the request body
-        new_image = {
-            'name': request.json['name'],
-            'path': request.json['path']
-        }
-        
-        # Add the new image to the existing list
-        data['photos'].append(new_image)
-        
-        # Save the updated JSON file
-        save_json_data(data)
-        
-        return jsonify({'message': 'Image added successfully'}), 201
-    
-    except KeyError:
-        return jsonify({'error': 'Missing required fields in request body'}), 400
-
-@app.route('/api/images/upload', methods=['POST'])
-def upload():
-    """
-    Uploads a new image and stores it in ./static/img/.
-
-    Accepts multipart/form-data with a single file field.
-
-    Returns:
-        A Flask Response object indicating success.
-    """
-    file_name = request.files['file'].filename
-    
-    # Check to make sure file is an image
-    file_extension = file_name.split('.')[-1].lower()
- 
-    # If the file extension isn't one of these, return a 400 error
-    if not file_extension in ['jpg', 'jpeg', 'png']:
-        return jsonify({'error': 'File must be .jpg, .png or .jpeg'}), 400
-    # Store uploaded image
-    img_path = upload_image(request.files['file'].read(), file_name)
-    
-    # Update images.json with new image path
-    update_photos_json(img_path)
-
-    return jsonify({'message': 'Image uploaded successfully'}), 201
+        resp = http_requests.request(
+            method=request.method,
+            url=target,
+            headers=headers,
+            json=request.get_json(silent=True),
+            stream=True,
+            timeout=60,
+        )
+        return Response(
+            stream_with_context(resp.iter_content(chunk_size=1024)),
+            status=resp.status_code,
+            content_type=resp.headers.get('Content-Type', 'application/json'),
+        )
+    except http_requests.exceptions.ConnectionError:
+        return jsonify({'error': 'Agent unreachable'}), 503
 
 
+# ---------------------------------------------------------------------------
+# Install script
+# ---------------------------------------------------------------------------
 
-# Serve static files
-@app.route('/static/<path:path>')
-def send_static(path):
-    return send_from_directory(STATIC_DIR, path)
+@app.route('/install.sh')
+def install_script():
+    base_url = request.host_url.rstrip('/')
+    return Response(
+        render_template('install.sh', base_url=base_url),
+        mimetype='text/plain',
+    )
 
-# Serve static files
+
+# ---------------------------------------------------------------------------
+# Settings API
+# ---------------------------------------------------------------------------
+
+@app.route('/api/settings', methods=['GET'])
+def get_settings_api():
+    return jsonify(get_settings().to_dict())
+
+
+@app.route('/api/settings', methods=['PATCH'])
+def update_settings():
+    s = get_settings()
+    body = request.get_json(silent=True) or {}
+    if 'default_title_above' in body:
+        s.default_title_above = body['default_title_above'].strip() or None
+    if 'default_title_below' in body:
+        s.default_title_below = body['default_title_below'].strip() or None
+    db.session.commit()
+    return jsonify(s.to_dict())
+
+
+# ---------------------------------------------------------------------------
+# Admin auth routes
+# ---------------------------------------------------------------------------
+
+@app.route('/admin/setup', methods=['GET', 'POST'])
+def admin_setup():
+    # Only accessible when no users exist
+    if AdminUser.query.count() > 0:
+        return redirect(url_for('admin_index'))
+    error = None
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        confirm  = request.form.get('confirm', '')
+        if not username or not password:
+            error = 'Username and password are required.'
+        elif password != confirm:
+            error = 'Passwords do not match.'
+        else:
+            user = AdminUser(username=username, password_hash=generate_password_hash(password))
+            db.session.add(user)
+            db.session.commit()
+            session['admin_user'] = username
+            return redirect(url_for('admin_index'))
+    return render_template('admin_setup.html', error=error)
+
+
+@app.route('/admin/login', methods=['GET', 'POST'])
+def admin_login():
+    if session.get('admin_user'):
+        return redirect(url_for('admin_index'))
+    error = None
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        user = AdminUser.query.filter_by(username=username).first()
+        if user and check_password_hash(user.password_hash, password):
+            session['admin_user'] = username
+            return redirect(request.args.get('next') or url_for('admin_index'))
+        error = 'Invalid username or password.'
+    return render_template('admin_login.html', error=error)
+
+
+@app.route('/admin/logout')
+def admin_logout():
+    session.pop('admin_user', None)
+    return redirect(url_for('admin_login'))
+
+
+@app.route('/admin/password', methods=['POST'])
+def admin_change_password():
+    username = session.get('admin_user')
+    if not username:
+        return jsonify({'error': 'Unauthorized'}), 401
+    body = request.get_json(silent=True) or {}
+    current  = body.get('current', '')
+    new_pass = body.get('new', '').strip()
+    user = AdminUser.query.filter_by(username=username).first()
+    if not user or not check_password_hash(user.password_hash, current):
+        return jsonify({'error': 'Current password is incorrect.'}), 400
+    if not new_pass:
+        return jsonify({'error': 'New password cannot be empty.'}), 400
+    user.password_hash = generate_password_hash(new_pass)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+# ---------------------------------------------------------------------------
+# Admin UI routes
+# ---------------------------------------------------------------------------
+
+@app.route('/admin')
+def admin_index():
+    return render_template('index.html')
+
+
+@app.route('/admin/posters')
+def admin_posters():
+    return render_template('posters.html')
+
+
+@app.route('/admin/trailers')
+def admin_trailers():
+    return render_template('trailers.html')
+
+
+@app.route('/admin/frames')
+def admin_frames():
+    return render_template('admin_frames.html')
+
+
+@app.route('/admin/tokens')
+def admin_tokens():
+    return redirect(url_for('admin_frames'))
+
+
+# ---------------------------------------------------------------------------
+# Static file serving
+# ---------------------------------------------------------------------------
+
 @app.route('/images/<path:path>')
 def send_images(path):
     return send_from_directory(IMAGES_DIR, path)
 
+
+# ---------------------------------------------------------------------------
+# DB init
+# ---------------------------------------------------------------------------
+
+@app.cli.command('init-db')
+def init_db_command():
+    db.create_all()
+    print('Database initialized.')
+
+
+with app.app_context():
+    db.create_all()
+
+
 if __name__ == '__main__':
-    
-    # Example of how to use the function
-    app.run(debug=True, host="0.0.0.0")
+    app.run(debug=True, host='0.0.0.0')
