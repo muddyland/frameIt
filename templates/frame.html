@@ -143,8 +143,11 @@
             <li>Run the install command on this Raspberry Pi</li>
         </ol>
         <a id="admin-link" href="#" class="admin-link">Open Admin Panel &rarr;</a>
-        <p class="bypass-hint">
+        <p class="bypass-hint" style="margin-bottom:0.5rem">
             Testing without a Pi? Add <code>?bypass_install=1</code> to the URL to preview content.
+        </p>
+        <p class="bypass-hint">
+            Checking for registration&hellip; this page will update automatically once the agent is registered.
         </p>
     </div>
 
@@ -258,6 +261,10 @@
             document.getElementById('unregistered').style.display = 'flex';
         }
 
+        function hideUnregistered() {
+            document.getElementById('unregistered').style.display = 'none';
+        }
+
         function hideLoader() {
             var loader = document.getElementById('loader');
             if (loader) loader.style.display = 'none';
@@ -287,7 +294,9 @@
                 });
         }
 
-        // ── Checkin — always runs on load ─────────────────────────────
+        // ── Checkin — polls until registered ─────────────────────────
+        var checkinAttempts = 0;
+
         function checkin() {
             fetch('/api/frames/checkin', {
                 method: 'POST',
@@ -297,9 +306,15 @@
             .then(function (r) { return r.json(); })
             .then(function (data) {
                 if (!data.registered) {
-                    showUnregistered();
+                    checkinAttempts++;
+                    // Show the install screen only after the first failed attempt
+                    // to avoid a flash if the agent is still registering on boot.
+                    if (checkinAttempts >= 2) showUnregistered();
+                    setTimeout(checkin, 15000);
                     return;
                 }
+                // Registered — hide the install screen if it was showing and start.
+                hideUnregistered();
                 frameId = String(data.frame_id);
                 fetchNext();
             })
