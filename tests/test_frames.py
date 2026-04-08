@@ -142,7 +142,7 @@ class TestGetFrames:
         checkin(client, hostname='bedroom')
         frames = client.get('/api/frames').get_json()
         assert len(frames) == 1
-        assert frames[0]['name'] == 'bedroom'
+        assert 'bedroom' in frames[0]['name']  # bypass frames get a [Preview] prefix
 
 
 class TestPatchFrame:

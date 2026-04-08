@@ -112,7 +112,7 @@ class TestServices:
             resp = client.get('/system/services', headers=auth_headers)
         assert resp.status_code == 200
         body = resp.get_json()
-        assert 'frameit-server' in body
+        assert 'frameit-agent' in body
         assert 'frameit-ui' in body
 
     def test_restart_known_service(self, client, auth_headers):

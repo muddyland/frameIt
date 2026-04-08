@@ -8,7 +8,7 @@ class TestFrameDisplay:
 
     def test_root_returns_html(self, client):
         resp = client.get('/')
-        assert b'frameit_frame_id' in resp.data
+        assert b'frameId' in resp.data
         assert b'fetchNext' in resp.data
 
     def test_root_contains_checkin_call(self, client):
@@ -76,5 +76,7 @@ class TestAdminRoutes:
         assert resp.status_code == 200
 
     def test_admin_tokens(self, client):
+        # /admin/tokens was merged into /admin/frames — expect redirect
         resp = client.get('/admin/tokens')
-        assert resp.status_code == 200
+        assert resp.status_code == 302
+        assert '/admin/frames' in resp.headers['Location']

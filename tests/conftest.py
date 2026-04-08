@@ -45,7 +45,15 @@ def clean_tables(app):          # noqa: redefined-outer-name
 
 @pytest.fixture
 def client(app):                # noqa: redefined-outer-name
-    return app.test_client()
+    """Authenticated test client — creates an admin user and logs in."""
+    c = app.test_client()
+    # /admin/setup is public and creates the first admin user + sets session
+    c.post('/admin/setup', data={
+        'username': 'admin',
+        'password': 'testpass',
+        'confirm':  'testpass',
+    })
+    return c
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -79,8 +87,12 @@ def add_trailer(client, url='dQw4w9WgXcQ', title='Test Trailer'):
 
 
 def checkin(client, hostname='testframe'):
-    """Helper: checkin a frame and return the parsed JSON."""
+    """Helper: checkin a frame and return the parsed JSON.
+
+    Uses bypass=True so the frame is auto-created without a registered agent,
+    matching the behaviour of the ?bypass_install=1 preview path.
+    """
     resp = client.post('/api/frames/checkin',
-                       json={'hostname': hostname},
+                       json={'hostname': hostname, 'bypass': True},
                        content_type='application/json')
     return resp.get_json()
