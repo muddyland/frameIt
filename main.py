@@ -45,7 +45,7 @@ db.init_app(app)
 # ---------------------------------------------------------------------------
 
 _PUBLIC_ENDPOINTS = {
-    'frame', 'manifest', 'frame_checkin', 'frame_next',
+    'frame', 'manifest', 'frame_checkin', 'frame_next', 'frame_signal',
     'agent_register', 'agent_heartbeat', 'agent_server_version', 'install_script',
     'serve_agent', 'serve_agent_requirements', 'send_images',
     'admin_login', 'admin_logout', 'admin_setup', 'static',
@@ -201,6 +201,33 @@ def frame_next(frame_id):
                         'title_below': title_below or ''})
     return jsonify({**base, 'type': 'trailer', 'id': item.id,
                     'youtube_id': item.youtube_id, 'title': item.title})
+
+
+# ---------------------------------------------------------------------------
+# Frame signal / command
+# ---------------------------------------------------------------------------
+
+@app.route('/api/frames/<int:frame_id>/signal')
+def frame_signal(frame_id):
+    """Polled by the frame client every few seconds to receive commands."""
+    frame = Frame.query.get_or_404(frame_id)
+    cmd = frame.pending_command
+    if cmd:
+        frame.pending_command = None
+        db.session.commit()
+    return jsonify({'command': cmd})
+
+
+@app.route('/api/frames/<int:frame_id>/command', methods=['POST'])
+def frame_send_command(frame_id):
+    frame = Frame.query.get_or_404(frame_id)
+    body = request.get_json(silent=True) or {}
+    cmd = body.get('command', '').strip()
+    if cmd not in ('next', 'refresh'):
+        return jsonify({'error': 'Invalid command'}), 400
+    frame.pending_command = cmd
+    db.session.commit()
+    return jsonify({'ok': True})
 
 
 # ---------------------------------------------------------------------------
@@ -711,6 +738,7 @@ _MIGRATIONS = [
     ('settings', 'default_content_mode',      "VARCHAR(10) NOT NULL DEFAULT 'pool'"),
     ('settings', 'default_pinned_type',        'VARCHAR(10)'),
     ('settings', 'default_pinned_id',          'INTEGER'),
+    ('frame',    'pending_command',             'VARCHAR(20)'),
 ]
 
 

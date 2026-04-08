@@ -274,6 +274,23 @@
             if (nextTimer) { clearTimeout(nextTimer); nextTimer = null; }
         }
 
+        // ── Remote commands (next / refresh) ──────────────────────────
+        function pollSignal() {
+            if (!frameId) { setTimeout(pollSignal, 5000); return; }
+            fetch('/api/frames/' + frameId + '/signal')
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    if (d.command === 'next') {
+                        clearTimer();
+                        fetchNext();
+                    } else if (d.command === 'refresh') {
+                        location.reload();
+                    }
+                })
+                .catch(function() {})
+                .finally(function() { setTimeout(pollSignal, 5000); });
+        }
+
         // ── Display-off awareness ─────────────────────────────────────
         function pollDisplayStatus() {
             if (!frameId) { setTimeout(pollDisplayStatus, 30000); return; }
@@ -345,6 +362,7 @@
                 hideUnregistered();
                 frameId = String(data.frame_id);
                 pollDisplayStatus();
+                pollSignal();
                 fetchNext();
             })
             .catch(function () {
