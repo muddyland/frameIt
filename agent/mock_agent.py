@@ -137,6 +137,13 @@ def reboot():
     return jsonify({'message': 'Reboot requested (mock — no action taken)'})
 
 
+@app.route('/system/agent-update', methods=['POST'])
+@require_token
+def agent_update():
+    print('[mock] Agent update requested — ignoring.')
+    return jsonify({'message': 'Update started — agent will restart in a few seconds (mock — no action taken)'})
+
+
 @app.route('/system/update', methods=['POST'])
 @require_token
 def apt_update():

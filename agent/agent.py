@@ -15,6 +15,7 @@ import pwd
 import re
 import socket
 import subprocess
+import sys
 import threading
 import time
 from functools import wraps
@@ -107,6 +108,33 @@ def reboot():
         subprocess.run(['sudo', 'reboot'], check=False)
     threading.Thread(target=_reboot, daemon=True).start()
     return jsonify({'message': 'Rebooting in 2 seconds'})
+
+
+@app.route('/system/agent-update', methods=['POST'])
+@require_token
+def agent_update():
+    def _do_update():
+        time.sleep(2)
+        agent_path = os.path.abspath(__file__)
+        agent_dir  = os.path.dirname(agent_path)
+        req_path   = os.path.join(agent_dir, 'requirements.txt')
+        pip        = os.path.join(os.path.dirname(sys.executable), 'pip')
+        try:
+            r = requests.get(f'{FRAMEIT_SERVER}/agent.py', timeout=30)
+            r.raise_for_status()
+            with open(agent_path, 'w', encoding='utf-8') as f:
+                f.write(r.text)
+            r = requests.get(f'{FRAMEIT_SERVER}/agent-requirements.txt', timeout=30)
+            r.raise_for_status()
+            with open(req_path, 'w', encoding='utf-8') as f:
+                f.write(r.text)
+            subprocess.run([pip, 'install', '--quiet', '-r', req_path], check=False)
+        except Exception as e:
+            print(f'[agent] Update download failed: {e}')
+            return
+        subprocess.run(['sudo', 'systemctl', 'restart', 'frameit-agent'], check=False)
+    threading.Thread(target=_do_update, daemon=True).start()
+    return jsonify({'message': 'Update started — agent will restart in a few seconds'})
 
 
 @app.route('/system/update', methods=['POST'])

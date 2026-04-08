@@ -143,6 +143,7 @@
                         <div class="col-md-6">
                             <div class="d-grid gap-2">
                                 <button class="btn btn-outline-warning btn-sm" onclick="agentAction('system/reboot', 'POST', 'Reboot?')"><i class="fa-solid fa-power-off me-1"></i>Reboot Pi</button>
+                                <button class="btn btn-outline-success btn-sm" onclick="agentAction('system/agent-update', 'POST', 'Update agent to the latest version from the server?')"><i class="fa-solid fa-cloud-arrow-down me-1"></i>Update Agent</button>
                                 <button class="btn btn-outline-info btn-sm" onclick="runCmd('system/update', 'apt-get update')"><i class="fa-solid fa-download me-1"></i>apt update</button>
                                 <button class="btn btn-outline-info btn-sm" onclick="runCmd('system/upgrade', 'apt-get upgrade')"><i class="fa-solid fa-arrow-up me-1"></i>apt upgrade</button>
                             </div>
