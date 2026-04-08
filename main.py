@@ -1,3 +1,4 @@
+import hashlib
 import os
 import re
 import uuid
@@ -45,7 +46,7 @@ db.init_app(app)
 
 _PUBLIC_ENDPOINTS = {
     'frame', 'manifest', 'frame_checkin', 'frame_next',
-    'agent_register', 'agent_heartbeat', 'install_script',
+    'agent_register', 'agent_heartbeat', 'agent_server_version', 'install_script',
     'serve_agent', 'serve_agent_requirements', 'send_images',
     'admin_login', 'admin_logout', 'admin_setup', 'static',
 }
@@ -454,8 +455,22 @@ def agent_register():
 def agent_heartbeat(frame_id):
     frame = Frame.query.get_or_404(frame_id)
     frame.agent_last_seen = utcnow()
+    body = request.get_json(silent=True) or {}
+    if 'version' in body:
+        frame.agent_version = body['version']
     db.session.commit()
     return jsonify({'interval_seconds': frame.interval_seconds, 'rotation': frame.rotation})
+
+
+@app.route('/api/agent/version')
+def agent_server_version():
+    path = os.path.join(os.path.dirname(__file__), 'agent', 'agent.py')
+    try:
+        with open(path, 'rb') as f:
+            version = hashlib.sha256(f.read()).hexdigest()[:12]
+    except OSError:
+        version = 'unknown'
+    return jsonify({'version': version})
 
 
 @app.route('/api/frames/<int:frame_id>/agent/<path:subpath>', methods=['GET', 'POST', 'PATCH', 'DELETE'])
@@ -637,17 +652,39 @@ def send_images(path):
 
 
 # ---------------------------------------------------------------------------
-# DB init
+# DB init + schema migrations
 # ---------------------------------------------------------------------------
+
+# Each entry is (table, column, column_definition).
+# Add a new row here whenever a column is added to a model.
+_MIGRATIONS = [
+    ('frame',    'agent_version',            'VARCHAR(12)'),
+    ('settings', 'default_interval_seconds', 'INTEGER NOT NULL DEFAULT 300'),
+]
+
+
+def migrate_schema():
+    """Apply any pending column additions — safe to call on every startup."""
+    with db.engine.connect() as conn:
+        for table, column, definition in _MIGRATIONS:
+            rows = conn.execute(db.text(f'PRAGMA table_info("{table}")')).fetchall()
+            existing = {r[1] for r in rows}
+            if column not in existing:
+                conn.execute(db.text(f'ALTER TABLE "{table}" ADD COLUMN {column} {definition}'))
+                conn.commit()
+                print(f'[db] Added column {table}.{column}')
+
 
 @app.cli.command('init-db')
 def init_db_command():
     db.create_all()
+    migrate_schema()
     print('Database initialized.')
 
 
 with app.app_context():
     db.create_all()
+    migrate_schema()
 
 
 if __name__ == '__main__':
