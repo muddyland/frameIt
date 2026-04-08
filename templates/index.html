@@ -111,18 +111,25 @@ function renderFrames(frames) {
 
         // ── Agent section ───────────────────────────────────────────────
         var agentSection;
+        var sysstatRow = '';
         if (!hasAgent) {
             agentSection = '<span class="small text-secondary fst-italic">No agent registered</span>';
         } else {
             var aBadge  = agentOnline ? badge('Online', 'bg-success') : badge('Offline', 'bg-danger');
             var upBadge = hasUpdate   ? (' ' + badge('Update', 'bg-warning text-dark')) : '';
+            var screenBadge = agentOnline
+                ? ' <span id="screen-badge-' + f.id + '" class="badge bg-secondary"><i class="fa-solid fa-display me-1"></i>…</span>'
+                : '';
             var hbText  = f.agent_last_seen
                 ? ('Heartbeat ' + timeSince(f.agent_last_seen))
                 : 'No heartbeat yet';
             var verText = f.agent_version ? (' &middot; <code class="text-secondary">' + f.agent_version + '</code>') : '';
             agentSection =
-                '<div class="d-flex align-items-center gap-1 flex-wrap">' + aBadge + upBadge + '</div>' +
+                '<div class="d-flex align-items-center gap-1 flex-wrap">' + aBadge + upBadge + screenBadge + '</div>' +
                 '<div class="small text-secondary mt-1">' + hbText + verText + '</div>';
+            if (agentOnline) {
+                sysstatRow = '<div id="sysstat-' + f.id + '" class="small text-secondary mt-2" style="display:none"></div>';
+            }
         }
 
         // ── Mode label ──────────────────────────────────────────────────
@@ -170,6 +177,7 @@ function renderFrames(frames) {
             '<div class="border-top border-secondary pt-2 mt-auto">' +
             '<div class="small fw-semibold text-secondary mb-1"><i class="fa-solid fa-microchip me-1"></i>Agent</div>' +
             agentSection +
+            sysstatRow +
             '</div>' +
 
             // Actions
@@ -203,6 +211,7 @@ function renderFrames(frames) {
         '<div class="row g-3">' + cards.join('') + '</div>';
     document.getElementById('last-refresh').textContent =
         'Updated ' + new Date().toLocaleTimeString();
+    loadQuickStats(frames);
 }
 
 function escHtml(s) {
@@ -211,6 +220,45 @@ function escHtml(s) {
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
+}
+
+function loadQuickStats(frames) {
+    frames.forEach(function(f) {
+        if (!f.agent_url) return;
+        var agentDiff = f.agent_last_seen
+            ? (Date.now() - new Date(f.agent_last_seen + 'Z').getTime()) / 1000
+            : Infinity;
+        if (agentDiff >= 180) return;
+
+        fetch('/api/frames/' + f.id + '/agent/display')
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                var el = document.getElementById('screen-badge-' + f.id);
+                if (!el) return;
+                el.className = d.on ? 'badge bg-success' : 'badge bg-secondary';
+                el.innerHTML = '<i class="fa-solid fa-display me-1"></i>Screen ' + (d.on ? 'On' : 'Off');
+            })
+            .catch(function() {
+                var el = document.getElementById('screen-badge-' + f.id);
+                if (el) el.style.display = 'none';
+            });
+
+        fetch('/api/frames/' + f.id + '/agent/system/info')
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                var el = document.getElementById('sysstat-' + f.id);
+                if (!el) return;
+                var parts = [];
+                if (d.cpu_percent  != null) parts.push('<i class="fa-solid fa-microchip me-1"></i>'        + d.cpu_percent  + '%');
+                if (d.ram_percent  != null) parts.push('<i class="fa-solid fa-memory me-1"></i>'           + d.ram_percent  + '%');
+                if (d.disk_percent != null) parts.push('<i class="fa-solid fa-hard-drive me-1"></i>'       + d.disk_percent + '%');
+                if (d.cpu_temp)             parts.push('<i class="fa-solid fa-temperature-half me-1"></i>' + d.cpu_temp     + '°C');
+                if (!parts.length) return;
+                el.innerHTML = parts.join('<span class="mx-1 opacity-50">·</span>');
+                el.style.display = '';
+            })
+            .catch(function() {});
+    });
 }
 
 function loadDashboard() {

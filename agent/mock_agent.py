@@ -34,15 +34,19 @@ FRAMEIT_SERVER = os.environ.get('FRAMEIT_SERVER', 'http://localhost:5000').rstri
 FRAMEIT_TOKEN  = os.environ.get('FRAMEIT_TOKEN', '')
 AGENT_PORT     = int(os.environ.get('AGENT_PORT', 5001))
 
+# Deliberately stale version so the update alert is always visible in mock mode.
+# Mutated to the real server version when agent-update is triggered.
+_mock_version = 'deadbeef0000'
+
 app = Flask(__name__)
 _frame_id = None
+_restarting = False  # True while simulating a restart/update
 
 # ---------------------------------------------------------------------------
 # Stateful mock values
 # ---------------------------------------------------------------------------
 
 _state = {
-    'browser_running': True,
     'display_on': True,
     'hostname': os.environ.get('MOCK_HOSTNAME', 'frameit-mock'),
     'wifi_ssid': 'MockNetwork',
@@ -90,6 +94,15 @@ Done.
 """
 
 # ---------------------------------------------------------------------------
+# Restart gate — all endpoints return 503 while a simulated restart is running
+# ---------------------------------------------------------------------------
+
+@app.before_request
+def check_restarting():
+    if _restarting:
+        return jsonify({'error': 'Agent is restarting'}), 503
+
+# ---------------------------------------------------------------------------
 # Auth
 # ---------------------------------------------------------------------------
 
@@ -113,7 +126,7 @@ def health():
         'ok': True,
         'hostname': _state['hostname'],
         'uptime_seconds': 86400 + random.randint(0, 3600),
-        'version': '1.0.0-mock',
+        'version': _mock_version,
     })
 
 
@@ -140,8 +153,29 @@ def reboot():
 @app.route('/system/agent-update', methods=['POST'])
 @require_token
 def agent_update():
-    print('[mock] Agent update requested — ignoring.')
-    return jsonify({'message': 'Update started — agent will restart in a few seconds (mock — no action taken)'})
+    def _do_update():
+        global _mock_version, _restarting
+        _restarting = True
+        print('[mock] Restarting for update…')
+        time.sleep(5)  # simulate download + restart window
+        try:
+            r = requests.get(f'{FRAMEIT_SERVER}/api/agent/version', timeout=10)
+            _mock_version = r.json().get('version', _mock_version)
+        except Exception as e:
+            print(f'[mock] Could not fetch server version: {e}')
+        _restarting = False
+        print(f'[mock] Back online — version {_mock_version}')
+        try:
+            if _frame_id:
+                requests.post(
+                    f'{FRAMEIT_SERVER}/api/agents/{_frame_id}/heartbeat',
+                    json={'version': _mock_version},
+                    timeout=5,
+                )
+        except Exception as e:
+            print(f'[mock] Heartbeat after update failed: {e}')
+    threading.Thread(target=_do_update, daemon=True).start()
+    return jsonify({'message': 'Update started — agent will restart in a few seconds'})
 
 
 @app.route('/system/update', methods=['POST'])
@@ -189,18 +223,6 @@ def network_status():
     })
 
 
-@app.route('/network/hostname', methods=['POST'])
-@require_token
-def set_hostname():
-    body = request.get_json(silent=True) or {}
-    hostname = body.get('hostname', '').strip()
-    if not hostname:
-        return jsonify({'error': 'hostname required'}), 400
-    _state['hostname'] = hostname
-    print(f'[mock] Hostname set to {hostname}')
-    return jsonify({'ok': True, 'hostname': hostname})
-
-
 @app.route('/network/wifi/scan')
 @require_token
 def wifi_scan():
@@ -245,42 +267,6 @@ def display_off():
     return jsonify({'ok': True})
 
 # ---------------------------------------------------------------------------
-# Browser
-# ---------------------------------------------------------------------------
-
-@app.route('/browser/status')
-@require_token
-def browser_status():
-    # Mirrors real agent: frameit-ui service = browser running
-    return jsonify({'running': _MOCK_SERVICES['frameit-ui']})
-
-
-@app.route('/browser/start', methods=['POST'])
-@require_token
-def browser_start():
-    _MOCK_SERVICES['frameit-ui'] = True
-    print('[mock] frameit-ui started')
-    return jsonify({'ok': True})
-
-
-@app.route('/browser/stop', methods=['POST'])
-@require_token
-def browser_stop():
-    _MOCK_SERVICES['frameit-ui'] = False
-    print('[mock] frameit-ui stopped')
-    return jsonify({'ok': True})
-
-
-@app.route('/browser/restart', methods=['POST'])
-@require_token
-def browser_restart():
-    _MOCK_SERVICES['frameit-ui'] = False
-    time.sleep(0.5)
-    _MOCK_SERVICES['frameit-ui'] = True
-    print('[mock] frameit-ui restarted')
-    return jsonify({'ok': True})
-
-# ---------------------------------------------------------------------------
 # Registration + heartbeat
 # ---------------------------------------------------------------------------
 
@@ -296,6 +282,14 @@ def register():
             if resp.status_code == 200:
                 _frame_id = resp.json().get('frame_id')
                 print(f'[mock] Registered as frame #{_frame_id}')
+                try:
+                    requests.post(
+                        f'{FRAMEIT_SERVER}/api/agents/{_frame_id}/heartbeat',
+                        json={'version': _mock_version},
+                        timeout=5,
+                    )
+                except Exception:
+                    pass
                 return
             else:
                 print(f'[mock] Registration failed ({resp.status_code}): {resp.text}')
@@ -310,7 +304,11 @@ def heartbeat_loop():
         if not _frame_id:
             continue
         try:
-            requests.post(f'{FRAMEIT_SERVER}/api/agents/{_frame_id}/heartbeat', timeout=5)
+            requests.post(
+                f'{FRAMEIT_SERVER}/api/agents/{_frame_id}/heartbeat',
+                json={'version': _mock_version},
+                timeout=5,
+            )
         except Exception:
             pass
 

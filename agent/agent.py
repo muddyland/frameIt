@@ -13,7 +13,6 @@ Environment variables:
 import hashlib
 import os
 import pwd
-import re
 import socket
 import subprocess
 import sys
@@ -241,19 +240,6 @@ def network_status():
     return jsonify({'hostname': socket.gethostname(), 'interfaces': interfaces, 'ssid': ssid})
 
 
-@app.route('/network/hostname', methods=['POST'])
-@require_token
-def set_hostname():
-    body = request.get_json(silent=True) or {}
-    hostname = _sanitize(body.get('hostname', ''))
-    if not hostname or not re.match(r'^[a-zA-Z0-9\-]{1,63}$', hostname):
-        return jsonify({'error': 'Invalid hostname'}), 400
-    r = subprocess.run(['sudo', 'hostnamectl', 'set-hostname', hostname], capture_output=True, text=True)
-    if r.returncode != 0:
-        return jsonify({'error': r.stderr}), 500
-    return jsonify({'ok': True, 'hostname': hostname})
-
-
 @app.route('/network/wifi/scan')
 @require_token
 def wifi_scan():
@@ -333,38 +319,6 @@ def display_off():
     subprocess.run(['xset', '+dpms'], check=False, env=env)
     subprocess.run(['xset', 'dpms', 'force', 'off'], check=False, env=env)
     return jsonify({'ok': True})
-
-# ---------------------------------------------------------------------------
-# Browser (Chromium kiosk) — managed via frameit-ui systemd service
-# ---------------------------------------------------------------------------
-
-@app.route('/browser/status')
-@require_token
-def browser_status():
-    r = subprocess.run(['systemctl', 'is-active', 'frameit-ui'], capture_output=True, text=True)
-    return jsonify({'running': r.returncode == 0})
-
-
-@app.route('/browser/start', methods=['POST'])
-@require_token
-def browser_start():
-    r = subprocess.run(['sudo', 'systemctl', 'start', 'frameit-ui'], capture_output=True, text=True)
-    return jsonify({'ok': r.returncode == 0})
-
-
-@app.route('/browser/stop', methods=['POST'])
-@require_token
-def browser_stop():
-    r = subprocess.run(['sudo', 'systemctl', 'stop', 'frameit-ui'], capture_output=True, text=True)
-    return jsonify({'ok': r.returncode == 0})
-
-
-@app.route('/browser/restart', methods=['POST'])
-@require_token
-def browser_restart():
-    r = subprocess.run(['sudo', 'systemctl', 'restart', 'frameit-ui'], capture_output=True, text=True)
-    return jsonify({'ok': r.returncode == 0})
-
 
 # ---------------------------------------------------------------------------
 # Registration + heartbeat

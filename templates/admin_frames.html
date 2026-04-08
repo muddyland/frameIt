@@ -20,6 +20,7 @@
     <h5 class="mb-0"><i class="fa-solid fa-tv me-2"></i>Registered Frames</h5>
     <div class="d-flex flex-wrap gap-2">
         <button class="btn btn-outline-light btn-sm" onclick="loadAll()"><i class="fa-solid fa-rotate me-1"></i>Refresh</button>
+        <button id="update-all-btn" class="btn btn-outline-warning btn-sm d-none" onclick="updateAllFrames()"><i class="fa-solid fa-cloud-arrow-down me-1"></i>Update All</button>
         <button class="btn btn-outline-danger btn-sm" onclick="cleanupFrames()"><i class="fa-solid fa-broom me-1"></i>Remove Unregistered</button>
     </div>
 </div>
@@ -130,7 +131,12 @@
             <div class="modal-body">
                 <div id="agent-modal-alerts"></div>
 
-                <!-- Row 1: Sysinfo + Services & Chromium -->
+                <div id="update-alert" class="alert alert-info d-none align-items-center justify-content-between py-2 mb-3" role="alert">
+                    <span><i class="fa-solid fa-circle-info me-2"></i>An agent update is available.</span>
+                    <button class="btn btn-sm btn-info ms-3" onclick="agentAction('system/agent-update', 'POST', 'Update agent to the latest version from the server?')"><i class="fa-solid fa-cloud-arrow-down me-1"></i>Update Now</button>
+                </div>
+
+                <!-- Row 1: Sysinfo + Services -->
                 <div class="row g-3 mb-3">
                     <div class="col-md-6">
                         <div class="card bg-secondary bg-opacity-10 border-secondary" id="sysinfo-card">
@@ -139,23 +145,16 @@
                     </div>
                     <div class="col-md-6">
                         <h6 class="text-secondary mb-2">Services</h6>
-                        <div id="services-list" class="d-flex gap-2 flex-wrap mb-3"></div>
-                        <h6 class="text-secondary mb-2">Chromium</h6>
-                        <div id="browser-status" class="small text-secondary mb-2">Loading...</div>
-                        <div class="d-flex gap-2">
-                            <button id="browser-action-btn" class="btn btn-sm btn-outline-success flex-fill" onclick="browserStartRestart()"><i class="fa-solid fa-play me-1"></i>Start</button>
-                        </div>
+                        <div id="services-list" class="d-flex flex-column gap-2"></div>
                     </div>
                 </div>
 
                 <!-- Row 2: Display -->
                 <div class="row g-3 mb-3">
                     <div class="col-12">
-                        <h6 class="text-secondary mb-2">Display</h6>
-                        <div id="display-status" class="small text-secondary mb-2">Loading...</div>
-                        <div class="d-flex gap-2">
-                            <button class="btn btn-sm btn-outline-light" onclick="agentAction('display/on', 'POST', null)"><i class="fa-solid fa-sun me-1"></i>Turn On</button>
-                            <button class="btn btn-sm btn-outline-secondary" onclick="agentAction('display/off', 'POST', null)"><i class="fa-solid fa-moon me-1"></i>Turn Off</button>
+                        <div class="form-check form-switch d-flex align-items-center gap-2 mb-0">
+                            <input class="form-check-input" type="checkbox" role="switch" id="display-toggle" style="width:2.5em;height:1.25em" onchange="toggleDisplay(this.checked)">
+                            <label class="form-check-label text-secondary" for="display-toggle">Display</label>
                         </div>
                     </div>
                 </div>
@@ -163,40 +162,55 @@
                 <!-- Row 3: Action buttons -->
                 <div class="row g-3 mb-2">
                     <div class="col-12">
+                        <h6 class="text-secondary mb-2">System</h6>
                         <div class="d-flex gap-2 flex-wrap">
                             <button class="btn btn-outline-info btn-sm" onclick="runCmd('system/update', 'apt-get update')"><i class="fa-solid fa-download me-1"></i>apt update</button>
                             <button class="btn btn-outline-info btn-sm" onclick="runCmd('system/upgrade', 'apt-get upgrade')"><i class="fa-solid fa-arrow-up me-1"></i>apt upgrade</button>
                             <button class="btn btn-outline-warning btn-sm" onclick="agentAction('system/reboot', 'POST', 'Reboot?')"><i class="fa-solid fa-power-off me-1"></i>Reboot Pi</button>
-                            <button class="btn btn-outline-success btn-sm" onclick="agentAction('system/agent-update', 'POST', 'Update agent to the latest version from the server?')"><i class="fa-solid fa-cloud-arrow-down me-1"></i>Update Agent</button>
                         </div>
                     </div>
                 </div>
 
                 <!-- Terminal output -->
-                <pre id="cmd-output" class="bg-black text-success p-2 rounded small mt-2" style="height:180px;overflow-y:auto;display:none"></pre>
+                <pre id="cmd-output" class="bg-black text-success p-2 rounded small mt-2" style="height:180px;overflow-y:auto">Run a command to see output here.</pre>
 
                 <!-- Network -->
                 <div class="row g-3 mt-1">
                     <div class="col-12">
                         <h6 class="text-secondary mb-2">Network</h6>
-                        <div id="network-info" class="small text-secondary mb-2">Loading...</div>
-                        <div class="input-group input-group-sm mb-2">
-                            <input type="text" class="form-control bg-dark text-white border-secondary" id="hostname-input" placeholder="New hostname">
-                            <button class="btn btn-outline-light" onclick="setHostname()">Set Hostname</button>
-                        </div>
+                        <div id="network-info" class="small mb-3">Loading...</div>
                         <button class="btn btn-sm btn-outline-secondary w-100" data-bs-toggle="collapse" data-bs-target="#wifi-section">Configure WiFi</button>
                         <div class="collapse mt-2" id="wifi-section">
-                            <div id="wifi-scan-results" class="mb-2 small"></div>
-                            <button class="btn btn-sm btn-outline-light mb-2" onclick="scanWifi()">Scan Networks</button>
+                            <div id="wifi-scan-results" class="mb-2"></div>
+                            <button class="btn btn-sm btn-outline-light w-100 mb-3" onclick="scanWifi()"><i class="fa-solid fa-magnifying-glass me-1"></i>Scan Networks</button>
                             <input type="text" class="form-control bg-dark text-white border-secondary form-control-sm mb-2" id="wifi-ssid" placeholder="SSID">
                             <input type="password" class="form-control bg-dark text-white border-secondary form-control-sm mb-2" id="wifi-pass" placeholder="Password">
-                            <button class="btn btn-sm btn-primary" onclick="connectWifi()">Connect</button>
+                            <button class="btn btn-sm btn-primary w-100" onclick="connectWifi()"><i class="fa-solid fa-wifi me-1"></i>Connect</button>
                         </div>
                     </div>
                 </div>
             </div>
             <div class="modal-footer border-secondary">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Generic confirm modal ─────────────────────────────────────────────── -->
+<div class="modal fade" id="confirm-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content bg-dark text-white border-secondary">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title" id="confirm-modal-title">Confirm</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p id="confirm-modal-body" class="mb-0"></p>
+            </div>
+            <div class="modal-footer border-secondary d-flex gap-2">
+                <button type="button" class="btn btn-secondary flex-fill" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary flex-fill" id="confirm-modal-ok" onclick="_confirmModalOk()">Confirm</button>
             </div>
         </div>
     </div>
@@ -245,6 +259,22 @@ var configModal  = new bootstrap.Modal(document.getElementById('config-modal'));
 var agentModal   = new bootstrap.Modal(document.getElementById('agent-modal'));
 var deleteModal  = new bootstrap.Modal(document.getElementById('delete-modal'));
 var installModal = new bootstrap.Modal(document.getElementById('install-modal'));
+var confirmModal = new bootstrap.Modal(document.getElementById('confirm-modal'));
+var _confirmCallback = null;
+
+function askConfirm(msg, callback, btnLabel, btnCls) {
+    document.getElementById('confirm-modal-body').textContent = msg;
+    var btn = document.getElementById('confirm-modal-ok');
+    btn.textContent = btnLabel || 'Confirm';
+    btn.className = 'btn flex-fill ' + (btnCls || 'btn-primary');
+    _confirmCallback = callback;
+    confirmModal.show();
+}
+
+function _confirmModalOk() {
+    confirmModal.hide();
+    if (_confirmCallback) { _confirmCallback(); _confirmCallback = null; }
+}
 var currentFrameId = null;
 var pendingDeleteId = null;
 var framesById = {};
@@ -343,11 +373,14 @@ function loadFrames() {
             var c = document.getElementById('frames-container');
             if (!frames.length) {
                 c.innerHTML = '<div class="text-secondary">No frames registered yet. Generate a token above to get started.</div>';
+                document.getElementById('update-all-btn').classList.add('d-none');
                 return;
             }
+            var updatableCount = 0;
             c.innerHTML = '<div class="list-group">' + frames.map(function(f) {
                 var updateAvailable = f.agent_url && serverAgentVersion
                     && f.agent_version && f.agent_version !== serverAgentVersion;
+                if (updateAvailable) updatableCount++;
                 var agentBadge = f.agent_url
                     ? '<span class="badge bg-success ms-2"><i class="fa-solid fa-circle-check me-1"></i>Agent</span>'
                     : '<span class="badge bg-secondary ms-2">No agent</span>';
@@ -386,6 +419,13 @@ function loadFrames() {
             document.querySelectorAll('#frames-container [data-bs-toggle="tooltip"]').forEach(function(el) {
                 new bootstrap.Tooltip(el);
             });
+            var uab = document.getElementById('update-all-btn');
+            if (updatableCount > 0) {
+                uab.innerHTML = '<i class="fa-solid fa-cloud-arrow-down me-1"></i>Update All (' + updatableCount + ')';
+                uab.classList.remove('d-none');
+            } else {
+                uab.classList.add('d-none');
+            }
         });
 }
 
@@ -409,6 +449,40 @@ function sendCommand(id, cmd) {
         showAlert(cmd === 'next' ? 'Advancing frame…' : 'Refreshing frame…');
     })
     .catch(function() { showAlert('Failed to send command.', 'danger'); });
+}
+
+function updateAllFrames() {
+    var updatable = Object.values(framesById).filter(function(f) {
+        return f.agent_url && f.agent_version && serverAgentVersion && f.agent_version !== serverAgentVersion;
+    });
+    if (!updatable.length) return;
+    askConfirm(
+        'Send update to ' + updatable.length + ' frame' + (updatable.length === 1 ? '' : 's') + '?',
+        function() { _doUpdateAll(updatable); },
+        'Update', 'btn-warning'
+    );
+}
+
+function _doUpdateAll(updatable) {
+    var failed = 0;
+    var done = 0;
+    updatable.forEach(function(f) {
+        fetch('/api/frames/' + f.id + '/agent/system/agent-update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+        })
+        .then(function() { done++; })
+        .catch(function() { done++; failed++; })
+        .finally(function() {
+            if (done === updatable.length) {
+                if (failed) {
+                    showAlert('Update failed on ' + failed + ' frame' + (failed === 1 ? '' : 's') + '.', 'danger');
+                } else {
+                    showAlert('Update sent to ' + updatable.length + ' frame' + (updatable.length === 1 ? '' : 's') + '.');
+                }
+            }
+        });
+    });
 }
 
 function cleanupFrames() {
@@ -466,8 +540,7 @@ function openAgent(id) {
     currentFrameId = f.id;
     document.getElementById('agent-modal-title').innerHTML = '<i class="fa-solid fa-microchip me-2"></i>Agent: ' + (f.name || f.ip);
     document.getElementById('agent-modal-alerts').innerHTML = '';
-    document.getElementById('cmd-output').style.display = 'none';
-    document.getElementById('cmd-output').textContent = '';
+    document.getElementById('cmd-output').textContent = 'Run a command to see output here.';
     loadAgentInfo();
     // Refresh stats every 5 seconds while the modal is open
     if (agentPollTimer) clearInterval(agentPollTimer);
@@ -585,6 +658,16 @@ function agentFetch(path, method, body) {
 }
 
 function loadAgentInfo() {
+    fetch('/api/frames/' + currentFrameId)
+        .then(function(r) { return r.json(); })
+        .then(function(f) {
+            framesById[currentFrameId] = f;
+            var updateAvail = serverAgentVersion && f.agent_version && f.agent_version !== serverAgentVersion;
+            var ua = document.getElementById('update-alert');
+            ua.classList.toggle('d-none', !updateAvail);
+            ua.classList.toggle('d-flex',  updateAvail);
+        });
+
     agentFetch('system/info').then(function(d) {
         document.getElementById('sysinfo-card').innerHTML =
             '<div class="card-body small"><div class="row text-center">' +
@@ -598,48 +681,59 @@ function loadAgentInfo() {
     });
     agentFetch('system/services').then(function(d) {
         document.getElementById('services-list').innerHTML = Object.entries(d).map(function(kv) {
-            return '<span class="badge bg-' + (kv[1] ? 'success' : 'danger') + '">' + kv[0] + '</span>';
+            var running = kv[1];
+            return '<div class="d-flex align-items-center gap-2">' +
+                '<span class="badge bg-' + (running ? 'success' : 'danger') + '" style="min-width:120px">' + kv[0] + '</span>' +
+                '<button class="btn btn-sm btn-outline-secondary" onclick="restartService(\'' + kv[0] + '\')">' +
+                '<i class="fa-solid fa-rotate-right me-1"></i>Restart</button>' +
+                '</div>';
         }).join('');
     }).catch(function() {});
     agentFetch('network/status').then(function(d) {
-        document.getElementById('network-info').innerHTML =
-            '<strong>' + (d.hostname || '') + '</strong><br>' +
-            (d.interfaces || []).map(function(i) { return i.name + ': ' + i.ip; }).join('<br>') +
-            (d.ssid ? '<br>WiFi: ' + d.ssid : '');
-        if (d.hostname) document.getElementById('hostname-input').placeholder = d.hostname;
+        var rows = [];
+        if (d.hostname) rows.push(['Hostname', d.hostname]);
+        (d.interfaces || []).forEach(function(i) { rows.push([i.name, i.ip || '—']); });
+        if (d.ssid) rows.push(['WiFi', d.ssid]);
+        document.getElementById('network-info').innerHTML = rows.map(function(r) {
+            return '<div class="d-flex justify-content-between py-1 border-bottom border-secondary">' +
+                '<span class="text-secondary">' + r[0] + '</span>' +
+                '<code class="text-light">' + r[1] + '</code>' +
+                '</div>';
+        }).join('');
     }).catch(function() {});
     agentFetch('display').then(function(d) {
-        document.getElementById('display-status').textContent = 'Display: ' + (d.on ? 'On' : 'Off');
-    }).catch(function() {});
-    agentFetch('browser/status').then(function(d) {
-        document.getElementById('browser-status').textContent = 'Chromium: ' + (d.running ? 'Running' : 'Stopped');
-        var btn = document.getElementById('browser-action-btn');
-        btn.dataset.running = d.running ? 'true' : 'false';
-        if (d.running) {
-            btn.className = 'btn btn-sm btn-outline-warning flex-fill';
-            btn.innerHTML = '<i class="fa-solid fa-rotate-right me-1"></i>Restart';
-        } else {
-            btn.className = 'btn btn-sm btn-outline-success flex-fill';
-            btn.innerHTML = '<i class="fa-solid fa-play me-1"></i>Start';
-        }
+        document.getElementById('display-toggle').checked = !!d.on;
     }).catch(function() {});
 }
 
 function agentAction(path, method, confirmMsg) {
-    if (confirmMsg && !confirm(confirmMsg)) return;
-    agentFetch(path, method || 'POST').then(function() { showAgentAlert('Done.'); loadAgentInfo(); })
-        .catch(function() { showAgentAlert('Agent action failed.', 'danger'); });
+    var doIt = function() {
+        agentFetch(path, method || 'POST').then(function() { showAgentAlert('Done.'); loadAgentInfo(); })
+            .catch(function() { showAgentAlert('Agent action failed.', 'danger'); });
+    };
+    if (confirmMsg) {
+        askConfirm(confirmMsg, doIt);
+    } else {
+        doIt();
+    }
 }
 
-function browserStartRestart() {
-    var btn = document.getElementById('browser-action-btn');
-    var running = btn.dataset.running === 'true';
-    agentAction(running ? 'browser/restart' : 'browser/start', 'POST', null);
+function toggleDisplay(on) {
+    agentFetch('display/' + (on ? 'on' : 'off'), 'POST')
+        .catch(function() {
+            showAgentAlert('Failed to toggle display.', 'danger');
+            document.getElementById('display-toggle').checked = !on;
+        });
+}
+
+function restartService(name) {
+    agentFetch('system/services/' + name + '/restart', 'POST')
+        .then(function() { showAgentAlert(name + ' restarted.'); setTimeout(loadAgentInfo, 1500); })
+        .catch(function() { showAgentAlert('Failed to restart ' + name + '.', 'danger'); });
 }
 
 function runCmd(path, label) {
     var out = document.getElementById('cmd-output');
-    out.style.display = 'block';
     out.textContent = 'Running ' + label + '...\n';
     fetch('/api/frames/' + currentFrameId + '/agent/' + path, {
         method: 'POST',
@@ -669,20 +763,38 @@ function runCmd(path, label) {
     }).catch(function(e) { out.textContent += '\nError: ' + e; });
 }
 
-function setHostname() {
-    var h = document.getElementById('hostname-input').value.trim();
-    if (!h) return;
-    agentFetch('network/hostname', 'POST', { hostname: h })
-        .then(function() { showAgentAlert('Hostname updated. Reboot to apply.'); })
-        .catch(function() { showAgentAlert('Failed to set hostname.', 'danger'); });
+function scanWifi() {
+    var el = document.getElementById('wifi-scan-results');
+    el.innerHTML = '<div class="text-secondary small py-1"><i class="fa-solid fa-circle-notch fa-spin me-1"></i>Scanning…</div>';
+    agentFetch('network/wifi/scan').then(function(d) {
+        var nets = d.networks || [];
+        if (!nets.length) {
+            el.innerHTML = '<div class="text-secondary small py-1">No networks found.</div>';
+            return;
+        }
+        el.innerHTML = '<div class="list-group list-group-flush rounded mb-1">' +
+            nets.map(function(n) {
+                var ssid = n.ssid || n;
+                var sig  = parseInt(n.signal) || 0;
+                var iconCls = sig >= 70 ? 'text-success' : sig >= 40 ? 'text-warning' : 'text-danger';
+                return '<button type="button"' +
+                    ' class="list-group-item list-group-item-action bg-dark text-white border-secondary d-flex align-items-center gap-2 py-2 px-2"' +
+                    ' data-ssid="' + ssid.replace(/"/g, '&quot;') + '"' +
+                    ' onclick="selectNetwork(this)">' +
+                    '<i class="fa-solid fa-wifi ' + iconCls + '"></i>' +
+                    '<span class="flex-fill text-truncate small">' + ssid.replace(/</g, '&lt;') + '</span>' +
+                    '<small class="text-secondary">' + sig + '%</small>' +
+                    '</button>';
+            }).join('') +
+            '</div>';
+    }).catch(function() {
+        el.innerHTML = '<div class="text-danger small py-1">Scan failed.</div>';
+    });
 }
 
-function scanWifi() {
-    document.getElementById('wifi-scan-results').textContent = 'Scanning...';
-    agentFetch('network/wifi/scan').then(function(d) {
-        document.getElementById('wifi-scan-results').textContent =
-            (d.networks || []).map(function(n) { return n.ssid || n; }).join(', ') || 'No networks found';
-    }).catch(function() { document.getElementById('wifi-scan-results').textContent = 'Scan failed'; });
+function selectNetwork(btn) {
+    document.getElementById('wifi-ssid').value = btn.dataset.ssid;
+    document.getElementById('wifi-pass').focus();
 }
 
 function connectWifi() {
