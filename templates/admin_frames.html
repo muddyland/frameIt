@@ -16,10 +16,10 @@
 </div>
 
 <!-- ── Registered frames ─────────────────────────────────────────────────── -->
-<div class="d-flex justify-content-between align-items-center mb-3">
+<div class="d-flex justify-content-between align-items-start align-items-sm-center flex-wrap gap-2 mb-3">
     <h5 class="mb-0"><i class="fa-solid fa-tv me-2"></i>Registered Frames</h5>
-    <div>
-        <button class="btn btn-outline-light btn-sm me-2" onclick="loadAll()"><i class="fa-solid fa-rotate me-1"></i>Refresh</button>
+    <div class="d-flex flex-wrap gap-2">
+        <button class="btn btn-outline-light btn-sm" onclick="loadAll()"><i class="fa-solid fa-rotate me-1"></i>Refresh</button>
         <button class="btn btn-outline-danger btn-sm" onclick="cleanupFrames()"><i class="fa-solid fa-broom me-1"></i>Remove Unregistered</button>
     </div>
 </div>
@@ -358,26 +358,28 @@ function loadFrames() {
                     ? ' <span class="badge bg-warning text-dark ms-1" style="font-size:0.65em;vertical-align:middle">Preview</span>'
                     : '';
                 var agentBtn = f.agent_url
-                    ? '<button class="btn btn-sm btn-outline-info me-1" onclick="openAgent(' + f.id + ')"><i class="fa-solid fa-microchip me-1"></i>Agent</button>'
-                    : '<button class="btn btn-sm btn-outline-secondary me-1" disabled title="No agent registered"><i class="fa-solid fa-microchip me-1"></i>Agent</button>';
+                    ? '<button class="btn btn-sm btn-outline-info" onclick="openAgent(' + f.id + ')" title="Agent controls"><i class="fa-solid fa-microchip"></i><span class="d-none d-sm-inline ms-1">Agent</span></button>'
+                    : '<button class="btn btn-sm btn-outline-secondary" disabled title="No agent registered"><i class="fa-solid fa-microchip"></i></button>';
                 var pinned = f.content_mode === 'pinned';
                 var nextBtn = pinned
-                    ? '<span class="d-inline-block me-1" data-bs-toggle="tooltip" data-bs-title="Frame is pinned" tabindex="0">' +
+                    ? '<span data-bs-toggle="tooltip" data-bs-title="Frame is pinned" tabindex="0">' +
                       '<button class="btn btn-sm btn-outline-secondary" style="pointer-events:none" disabled>' +
                       '<i class="fa-solid fa-forward-step"></i></button></span>'
-                    : '<button class="btn btn-sm btn-outline-light me-1" onclick="sendCommand(' + f.id + ',\'next\')" title="Advance to next poster/trailer">' +
+                    : '<button class="btn btn-sm btn-outline-light" onclick="sendCommand(' + f.id + ',\'next\')" title="Advance to next poster/trailer">' +
                       '<i class="fa-solid fa-forward-step"></i></button>';
-                var refreshBtn = '<button class="btn btn-sm btn-outline-light me-1" onclick="sendCommand(' + f.id + ',\'refresh\')" title="Reload the frame browser">' +
+                var refreshBtn = '<button class="btn btn-sm btn-outline-light" onclick="sendCommand(' + f.id + ',\'refresh\')" title="Reload the frame browser">' +
                     '<i class="fa-solid fa-rotate"></i></button>';
-                return '<div class="list-group-item bg-dark text-white border-secondary d-flex align-items-center gap-3">' +
-                    '<div class="flex-fill">' +
-                    '<div class="fw-semibold">' + (f.name || f.ip) + previewBadge + agentBadge + updateBadge + '</div>' +
+                return '<div class="list-group-item bg-dark text-white border-secondary d-flex align-items-center gap-2 flex-wrap">' +
+                    '<div class="flex-fill" style="min-width:0">' +
+                    '<div class="fw-semibold text-truncate">' + (f.name || f.ip) + previewBadge + agentBadge + updateBadge + '</div>' +
                     '<div class="small text-secondary">' + f.ip + ' &bull; ' + f.rotation + '° &bull; ' + f.interval_seconds + 's &bull; ' + f.content_mode + '</div>' +
                     '</div>' +
+                    '<div class="d-flex gap-1 flex-shrink-0">' +
                     nextBtn + refreshBtn +
-                    '<button class="btn btn-sm btn-outline-light me-1" onclick="openConfig(' + f.id + ')"><i class="fa-solid fa-gear me-1"></i>Configure</button>' +
+                    '<button class="btn btn-sm btn-outline-light" onclick="openConfig(' + f.id + ')" title="Configure frame"><i class="fa-solid fa-gear"></i><span class="d-none d-sm-inline ms-1">Configure</span></button>' +
                     agentBtn +
-                    '<button class="btn btn-sm btn-outline-danger" onclick="openDelete(' + f.id + ')"><i class="fa-solid fa-trash"></i></button>' +
+                    '<button class="btn btn-sm btn-outline-danger" onclick="openDelete(' + f.id + ')" title="Remove frame"><i class="fa-solid fa-trash"></i></button>' +
+                    '</div>' +
                     '</div>';
             }).join('') + '</div>';
             // Activate Bootstrap tooltips on the newly rendered list

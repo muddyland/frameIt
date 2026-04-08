@@ -110,10 +110,21 @@ def manifest():
     return jsonify({
         "name": "FrameIT",
         "short_name": "FrameIT",
-        "start_url": "/",
+        "description": "Digital photo-frame manager for Raspberry Pi kiosks.",
+        "start_url": "/admin",
+        "scope": "/",
         "display": "standalone",
+        "orientation": "portrait-primary",
         "background_color": "#000000",
         "theme_color": "#000000",
+        "icons": [
+            {
+                "src": "/static/img/icon.svg",
+                "sizes": "any",
+                "type": "image/svg+xml",
+                "purpose": "any maskable",
+            },
+        ],
     })
 
 
