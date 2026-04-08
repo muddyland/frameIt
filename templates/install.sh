@@ -55,6 +55,16 @@ else
     SUDO="sudo"
 fi
 
+# Run a command as the kiosk user.
+# Uses 'runuser' when already root, 'sudo -u' otherwise.
+as_kiosk() {
+    if [[ "$EUID" -eq 0 ]]; then
+        runuser -u "$KIOSK_USER" -- "$@"
+    else
+        sudo -u "$KIOSK_USER" "$@"
+    fi
+}
+
 # ── User check ────────────────────────────────────────────────────────────────
 
 KIOSK_HOME=$(getent passwd "$KIOSK_USER" | cut -d: -f6)
@@ -182,8 +192,8 @@ curl -fsSL "${SERVER}/agent.py"               | $SUDO tee "$AGENT_PY" > /dev/nul
 curl -fsSL "${SERVER}/agent-requirements.txt" | $SUDO tee "$AGENT_DIR/requirements.txt" > /dev/null
 $SUDO chown -R "$KIOSK_USER:$KIOSK_USER" "$AGENT_DIR"
 echo "==> Creating Python virtualenv..."
-$SUDO -u "$KIOSK_USER" python3 -m venv "$AGENT_VENV"
-$SUDO -u "$KIOSK_USER" "$AGENT_VENV/bin/pip" install --quiet -r "$AGENT_DIR/requirements.txt"
+as_kiosk python3 -m venv "$AGENT_VENV"
+as_kiosk "$AGENT_VENV/bin/pip" install --quiet -r "$AGENT_DIR/requirements.txt"
 echo "    Installed to $AGENT_DIR"
 
 # ── Environment config ────────────────────────────────────────────────────────
