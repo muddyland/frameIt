@@ -129,9 +129,25 @@
             font-size: clamp(0.7rem, 1.2vw, 0.85rem);
             color: #555;
         }
+
+        /* Server connection status dot */
+        #conn-dot {
+            position: fixed;
+            bottom: 12px;
+            right: 12px;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            z-index: 300;
+            background: #888;
+            box-shadow: 0 0 0 1.5px rgba(0,0,0,.55);
+            transition: background 0.4s ease;
+            pointer-events: none;
+        }
     </style>
 </head>
 <body>
+    <div id="conn-dot"></div>
     <div id="loader"><div class="spinner"></div></div>
 
     <div id="unregistered">
@@ -164,6 +180,11 @@
     (function () {
         var bypass = new URLSearchParams(window.location.search).get('bypass_install') === '1';
         var frameId = null;
+
+        function setConnStatus(ok) {
+            var dot = document.getElementById('conn-dot');
+            if (dot) dot.style.background = ok ? '#4caf50' : '#f44336';
+        }
         var ytPlayer = null;
         var nextTimer = null;
         var displayOff = false;
@@ -281,6 +302,7 @@
             fetch('/api/frames/' + frameId + '/signal')
                 .then(function(r) { return r.json(); })
                 .then(function(d) {
+                    setConnStatus(true);
                     if (d.command === 'next') {
                         clearTimer();
                         fetchNext();
@@ -288,7 +310,7 @@
                         location.reload();
                     }
                 })
-                .catch(function() {})
+                .catch(function() { setConnStatus(false); })
                 .finally(function() { setTimeout(pollSignal, 5000); });
         }
 
@@ -325,6 +347,7 @@
             fetch('/api/frames/' + frameId + '/next')
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
+                    setConnStatus(true);
                     applyRotation(data.rotation || 0);
                     if (data.type === 'poster') {
                         showPoster(data);
@@ -336,6 +359,7 @@
                     }
                 })
                 .catch(function () {
+                    setConnStatus(false);
                     nextTimer = setTimeout(fetchNext, 30000);
                 });
         }
@@ -351,6 +375,7 @@
             })
             .then(function (r) { return r.json(); })
             .then(function (data) {
+                setConnStatus(true);
                 if (!data.registered) {
                     checkinAttempts++;
                     // Show the install screen only after the first failed attempt
@@ -367,6 +392,7 @@
                 fetchNext();
             })
             .catch(function () {
+                setConnStatus(false);
                 setTimeout(checkin, 10000);
             });
         }

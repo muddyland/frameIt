@@ -359,7 +359,34 @@ def delete_trailer(trailer_id):
 @app.route('/api/frames', methods=['GET'])
 def get_frames():
     frames = Frame.query.order_by(Frame.name).all()
-    return jsonify([f.to_dict() for f in frames])
+    result = []
+    for f in frames:
+        d = f.to_dict()
+        log = (FrameLog.query
+               .filter_by(frame_id=f.id)
+               .order_by(FrameLog.shown_at.desc())
+               .first())
+        if log:
+            preview = {'type': log.content_type, 'shown_at': log.shown_at.isoformat()}
+            if log.content_type == 'poster':
+                poster = db.session.get(Poster, log.content_id)
+                if poster:
+                    preview['thumb_url'] = f'/images/{poster.filename}'
+                    preview['title'] = poster.title_above or poster.title_below or ''
+                else:
+                    preview = None
+            else:
+                trailer = db.session.get(Trailer, log.content_id)
+                if trailer:
+                    preview['thumb_url'] = f'https://img.youtube.com/vi/{trailer.youtube_id}/mqdefault.jpg'
+                    preview['title'] = trailer.title
+                else:
+                    preview = None
+            d['preview'] = preview
+        else:
+            d['preview'] = None
+        result.append(d)
+    return jsonify(result)
 
 
 @app.route('/api/frames/<int:frame_id>', methods=['GET'])
