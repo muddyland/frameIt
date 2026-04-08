@@ -40,7 +40,7 @@ function loadFrames() {
                 var agentDiff = f.agent_last_seen ? (now - new Date(f.agent_last_seen + 'Z').getTime()) / 1000 : Infinity;
                 var rowCls = frameDiff > f.interval_seconds * 2 ? 'table-danger' : '';
                 var frameOnline = frameDiff < f.interval_seconds * 2;
-                var agentOnline = f.agent_url ? agentDiff < 120 : null;
+                var agentOnline = f.agent_url ? agentDiff < 180 : null;
                 return '<tr class="' + rowCls + '">' +
                     '<td>' + statusDot(frameOnline, 'Frame ' + (frameOnline ? 'online' : 'offline')) + '</td>' +
                     '<td>' + (f.name || f.ip) + '</td>' +

@@ -23,7 +23,7 @@ from functools import wraps
 
 import psutil
 import requests
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, request, stream_with_context
 
 # ---------------------------------------------------------------------------
 # Config
@@ -151,22 +151,32 @@ def agent_update():
 @app.route('/system/update', methods=['POST'])
 @require_token
 def apt_update():
-    result = subprocess.run(
-        ['sudo', 'apt-get', 'update'],
-        capture_output=True, text=True, timeout=120
-    )
-    return jsonify({'output': result.stdout + result.stderr, 'returncode': result.returncode})
+    def _stream():
+        proc = subprocess.Popen(
+            ['sudo', 'apt-get', 'update'],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, bufsize=1,
+        )
+        for line in proc.stdout:
+            yield line
+        proc.wait()
+    return Response(stream_with_context(_stream()), mimetype='text/plain')
 
 
 @app.route('/system/upgrade', methods=['POST'])
 @require_token
 def apt_upgrade():
-    result = subprocess.run(
-        ['sudo', 'apt-get', 'upgrade', '-y'],
-        capture_output=True, text=True, timeout=600,
-        env={**os.environ, 'DEBIAN_FRONTEND': 'noninteractive'},
-    )
-    return jsonify({'output': result.stdout + result.stderr, 'returncode': result.returncode})
+    def _stream():
+        proc = subprocess.Popen(
+            ['sudo', 'apt-get', 'upgrade', '-y'],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, bufsize=1,
+            env={**os.environ, 'DEBIAN_FRONTEND': 'noninteractive'},
+        )
+        for line in proc.stdout:
+            yield line
+        proc.wait()
+    return Response(stream_with_context(_stream()), mimetype='text/plain')
 
 
 @app.route('/system/services')

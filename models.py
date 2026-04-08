@@ -63,6 +63,7 @@ class Frame(db.Model):
     agent_url = db.Column(db.String(255), nullable=True)
     agent_token = db.Column(db.String(64), nullable=True)
     agent_last_seen = db.Column(db.DateTime, nullable=True)
+    agent_version = db.Column(db.String(12), nullable=True)
     logs = db.relationship('FrameLog', backref='frame', lazy=True)
 
     def to_dict(self):
@@ -78,6 +79,7 @@ class Frame(db.Model):
             'pinned_id': self.pinned_id,
             'agent_url': self.agent_url,
             'agent_last_seen': self.agent_last_seen.isoformat() if self.agent_last_seen else None,
+            'agent_version': self.agent_version,
         }
 
 

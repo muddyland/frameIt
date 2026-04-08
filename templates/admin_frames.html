@@ -129,74 +129,95 @@
                         <div id="pinned-pagination" class="d-flex justify-content-between align-items-center mt-2" style="display:none!important"></div>
                     </div>
                 </div>
+            </div>
+            <div class="modal-footer border-secondary">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" onclick="saveConfig()"><i class="fa-solid fa-floppy-disk me-1"></i>Save Settings</button>
+            </div>
+        </div>
+    </div>
+</div>
 
-                <!-- Agent controls (shown only if agent is registered) -->
-                <div id="agent-section" style="display:none" class="mt-4">
-                    <hr class="border-secondary">
-                    <h6 class="mb-3"><i class="fa-solid fa-microchip me-2"></i>Agent Controls</h6>
-                    <div class="row g-3 mb-3">
-                        <div class="col-md-6">
-                            <div class="card bg-secondary bg-opacity-10 border-secondary" id="sysinfo-card">
-                                <div class="card-body small text-secondary">Loading system info...</div>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="d-grid gap-2">
-                                <button class="btn btn-outline-warning btn-sm" onclick="agentAction('system/reboot', 'POST', 'Reboot?')"><i class="fa-solid fa-power-off me-1"></i>Reboot Pi</button>
-                                <button class="btn btn-outline-success btn-sm" onclick="agentAction('system/agent-update', 'POST', 'Update agent to the latest version from the server?')"><i class="fa-solid fa-cloud-arrow-down me-1"></i>Update Agent</button>
-                                <button class="btn btn-outline-info btn-sm" onclick="runCmd('system/update', 'apt-get update')"><i class="fa-solid fa-download me-1"></i>apt update</button>
-                                <button class="btn btn-outline-info btn-sm" onclick="runCmd('system/upgrade', 'apt-get upgrade')"><i class="fa-solid fa-arrow-up me-1"></i>apt upgrade</button>
-                            </div>
+<!-- ── Agent modal ────────────────────────────────────────────────────────── -->
+<div class="modal fade" id="agent-modal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content bg-dark text-white border-secondary">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title" id="agent-modal-title"><i class="fa-solid fa-microchip me-2"></i>Agent</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="agent-modal-alerts"></div>
+
+                <!-- Row 1: Sysinfo + Services & Chromium -->
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <div class="card bg-secondary bg-opacity-10 border-secondary" id="sysinfo-card">
+                            <div class="card-body small text-secondary">Loading system info...</div>
                         </div>
                     </div>
-
-                    <div class="row g-3 mb-3">
-                        <div class="col-12">
-                            <h6 class="text-secondary mb-2">Services</h6>
-                            <div id="services-list" class="d-flex gap-2 flex-wrap"></div>
+                    <div class="col-md-6">
+                        <h6 class="text-secondary mb-2">Services</h6>
+                        <div id="services-list" class="d-flex gap-2 flex-wrap mb-3"></div>
+                        <h6 class="text-secondary mb-2">Chromium</h6>
+                        <div id="browser-status" class="small text-secondary mb-2">Loading...</div>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-sm btn-outline-success flex-fill" onclick="agentAction('browser/start', 'POST', null)"><i class="fa-solid fa-play me-1"></i>Start</button>
+                            <button class="btn btn-sm btn-outline-warning flex-fill" onclick="agentAction('browser/restart', 'POST', null)"><i class="fa-solid fa-rotate-right me-1"></i>Restart</button>
+                            <button class="btn btn-sm btn-outline-danger flex-fill" onclick="agentAction('browser/stop', 'POST', null)"><i class="fa-solid fa-stop me-1"></i>Stop</button>
                         </div>
                     </div>
+                </div>
 
-                    <div class="row g-3 mb-3">
-                        <div class="col-md-6">
-                            <h6 class="text-secondary mb-2">Network</h6>
-                            <div id="network-info" class="small text-secondary mb-2">Loading...</div>
-                            <div class="input-group input-group-sm mb-2">
-                                <input type="text" class="form-control bg-dark text-white border-secondary" id="hostname-input" placeholder="New hostname">
-                                <button class="btn btn-outline-light" onclick="setHostname()">Set Hostname</button>
-                            </div>
-                            <button class="btn btn-sm btn-outline-secondary w-100" data-bs-toggle="collapse" data-bs-target="#wifi-section">Configure WiFi</button>
-                            <div class="collapse mt-2" id="wifi-section">
-                                <div id="wifi-scan-results" class="mb-2 small"></div>
-                                <button class="btn btn-sm btn-outline-light mb-2" onclick="scanWifi()">Scan Networks</button>
-                                <input type="text" class="form-control bg-dark text-white border-secondary form-control-sm mb-2" id="wifi-ssid" placeholder="SSID">
-                                <input type="password" class="form-control bg-dark text-white border-secondary form-control-sm mb-2" id="wifi-pass" placeholder="Password">
-                                <button class="btn btn-sm btn-primary" onclick="connectWifi()">Connect</button>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <h6 class="text-secondary mb-2">Display</h6>
-                            <div id="display-status" class="small text-secondary mb-2">Loading...</div>
-                            <div class="d-flex gap-2 mb-3">
-                                <button class="btn btn-sm btn-outline-light flex-fill" onclick="agentAction('display/on', 'POST', null)"><i class="fa-solid fa-sun me-1"></i>Turn On</button>
-                                <button class="btn btn-sm btn-outline-secondary flex-fill" onclick="agentAction('display/off', 'POST', null)"><i class="fa-solid fa-moon me-1"></i>Turn Off</button>
-                            </div>
-                            <h6 class="text-secondary mb-2">Browser</h6>
-                            <div id="browser-status" class="small text-secondary mb-2">Loading...</div>
-                            <div class="d-flex gap-2">
-                                <button class="btn btn-sm btn-outline-success flex-fill" onclick="agentAction('browser/start', 'POST', null)"><i class="fa-solid fa-play me-1"></i>Start</button>
-                                <button class="btn btn-sm btn-outline-warning flex-fill" onclick="agentAction('browser/restart', 'POST', null)"><i class="fa-solid fa-rotate-right me-1"></i>Restart</button>
-                                <button class="btn btn-sm btn-outline-danger flex-fill" onclick="agentAction('browser/stop', 'POST', null)"><i class="fa-solid fa-stop me-1"></i>Stop</button>
-                            </div>
+                <!-- Row 2: Display -->
+                <div class="row g-3 mb-3">
+                    <div class="col-12">
+                        <h6 class="text-secondary mb-2">Display</h6>
+                        <div id="display-status" class="small text-secondary mb-2">Loading...</div>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-sm btn-outline-light" onclick="agentAction('display/on', 'POST', null)"><i class="fa-solid fa-sun me-1"></i>Turn On</button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="agentAction('display/off', 'POST', null)"><i class="fa-solid fa-moon me-1"></i>Turn Off</button>
                         </div>
                     </div>
+                </div>
 
-                    <pre id="cmd-output" class="bg-black text-success p-2 rounded small" style="height:120px;overflow-y:auto;display:none"></pre>
+                <!-- Row 3: Action buttons -->
+                <div class="row g-3 mb-2">
+                    <div class="col-12">
+                        <div class="d-flex gap-2 flex-wrap">
+                            <button class="btn btn-outline-info btn-sm" onclick="runCmd('system/update', 'apt-get update')"><i class="fa-solid fa-download me-1"></i>apt update</button>
+                            <button class="btn btn-outline-info btn-sm" onclick="runCmd('system/upgrade', 'apt-get upgrade')"><i class="fa-solid fa-arrow-up me-1"></i>apt upgrade</button>
+                            <button class="btn btn-outline-warning btn-sm" onclick="agentAction('system/reboot', 'POST', 'Reboot?')"><i class="fa-solid fa-power-off me-1"></i>Reboot Pi</button>
+                            <button class="btn btn-outline-success btn-sm" onclick="agentAction('system/agent-update', 'POST', 'Update agent to the latest version from the server?')"><i class="fa-solid fa-cloud-arrow-down me-1"></i>Update Agent</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Terminal output -->
+                <pre id="cmd-output" class="bg-black text-success p-2 rounded small mt-2" style="height:180px;overflow-y:auto;display:none"></pre>
+
+                <!-- Network -->
+                <div class="row g-3 mt-1">
+                    <div class="col-12">
+                        <h6 class="text-secondary mb-2">Network</h6>
+                        <div id="network-info" class="small text-secondary mb-2">Loading...</div>
+                        <div class="input-group input-group-sm mb-2">
+                            <input type="text" class="form-control bg-dark text-white border-secondary" id="hostname-input" placeholder="New hostname">
+                            <button class="btn btn-outline-light" onclick="setHostname()">Set Hostname</button>
+                        </div>
+                        <button class="btn btn-sm btn-outline-secondary w-100" data-bs-toggle="collapse" data-bs-target="#wifi-section">Configure WiFi</button>
+                        <div class="collapse mt-2" id="wifi-section">
+                            <div id="wifi-scan-results" class="mb-2 small"></div>
+                            <button class="btn btn-sm btn-outline-light mb-2" onclick="scanWifi()">Scan Networks</button>
+                            <input type="text" class="form-control bg-dark text-white border-secondary form-control-sm mb-2" id="wifi-ssid" placeholder="SSID">
+                            <input type="password" class="form-control bg-dark text-white border-secondary form-control-sm mb-2" id="wifi-pass" placeholder="Password">
+                            <button class="btn btn-sm btn-primary" onclick="connectWifi()">Connect</button>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer border-secondary">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-primary" onclick="saveConfig()">Save Settings</button>
             </div>
         </div>
     </div>
@@ -225,9 +246,10 @@
 
 {% block scripts %}
 <script>
-function showModalAlert(msg, type) {
+function showModalAlert(msg, type, alertId) {
     type = type || 'success';
-    var el = document.getElementById('modal-alerts');
+    alertId = alertId || 'modal-alerts';
+    var el = document.getElementById(alertId);
     var id = 'malert-' + Date.now();
     el.innerHTML = '';
     el.insertAdjacentHTML('beforeend',
@@ -236,13 +258,19 @@ function showModalAlert(msg, type) {
     setTimeout(function () { var a = document.getElementById(id); if (a) a.remove(); }, 4000);
 }
 
+function showAgentAlert(msg, type) {
+    showModalAlert(msg, type, 'agent-modal-alerts');
+}
+
 var configModal  = new bootstrap.Modal(document.getElementById('config-modal'));
+var agentModal   = new bootstrap.Modal(document.getElementById('agent-modal'));
 var deleteModal  = new bootstrap.Modal(document.getElementById('delete-modal'));
 var installModal = new bootstrap.Modal(document.getElementById('install-modal'));
 var currentFrameId = null;
 var pendingDeleteId = null;
 var framesById = {};
 var defaultIntervalSeconds = 300;
+var serverAgentVersion = null;
 
 // ── Default interval settings ──────────────────────────────────────────────
 
@@ -361,18 +389,27 @@ function loadFrames() {
                 return;
             }
             c.innerHTML = '<div class="list-group">' + frames.map(function(f) {
+                var updateAvailable = f.agent_url && serverAgentVersion
+                    && f.agent_version && f.agent_version !== serverAgentVersion;
                 var agentBadge = f.agent_url
                     ? '<span class="badge bg-success ms-2"><i class="fa-solid fa-circle-check me-1"></i>Agent</span>'
                     : '<span class="badge bg-secondary ms-2">No agent</span>';
+                var updateBadge = updateAvailable
+                    ? '<span class="badge bg-warning text-dark ms-2" title="Agent update available — open Configure to update"><i class="fa-solid fa-circle-exclamation me-1"></i>Update available</span>'
+                    : '';
                 var previewBadge = f.name && f.name.startsWith('[Preview]')
                     ? ' <span class="badge bg-warning text-dark ms-1" style="font-size:0.65em;vertical-align:middle">Preview</span>'
                     : '';
+                var agentBtn = f.agent_url
+                    ? '<button class="btn btn-sm btn-outline-info me-1" onclick="openAgent(' + f.id + ')"><i class="fa-solid fa-microchip me-1"></i>Agent</button>'
+                    : '<button class="btn btn-sm btn-outline-secondary me-1" disabled title="No agent registered"><i class="fa-solid fa-microchip me-1"></i>Agent</button>';
                 return '<div class="list-group-item bg-dark text-white border-secondary d-flex align-items-center gap-3">' +
                     '<div class="flex-fill">' +
-                    '<div class="fw-semibold">' + (f.name || f.ip) + previewBadge + agentBadge + '</div>' +
+                    '<div class="fw-semibold">' + (f.name || f.ip) + previewBadge + agentBadge + updateBadge + '</div>' +
                     '<div class="small text-secondary">' + f.ip + ' &bull; ' + f.rotation + '° &bull; ' + f.interval_seconds + 's &bull; ' + f.content_mode + '</div>' +
                     '</div>' +
                     '<button class="btn btn-sm btn-outline-light me-1" onclick="openConfig(' + f.id + ')"><i class="fa-solid fa-gear me-1"></i>Configure</button>' +
+                    agentBtn +
                     '<button class="btn btn-sm btn-outline-danger" onclick="openDelete(' + f.id + ')"><i class="fa-solid fa-trash"></i></button>' +
                     '</div>';
             }).join('') + '</div>';
@@ -381,8 +418,11 @@ function loadFrames() {
 
 function loadAll() {
     loadTokens();
-    loadFrames();
     loadDefaultInterval();
+    fetch('/api/agent/version')
+        .then(function(r) { return r.json(); })
+        .then(function(d) { serverAgentVersion = d.version; })
+        .finally(function() { loadFrames(); });
 }
 
 function cleanupFrames() {
@@ -432,9 +472,19 @@ function openConfig(id) {
     document.getElementById('config-modal-title').innerHTML = '<i class="fa-solid fa-gear me-2"></i>Configure: ' + (f.name || f.ip);
     document.getElementById('modal-alerts').innerHTML = '';
     togglePinned(f.pinned_id);
-    document.getElementById('agent-section').style.display = f.agent_url ? 'block' : 'none';
-    if (f.agent_url) loadAgentInfo();
     configModal.show();
+}
+
+function openAgent(id) {
+    var f = framesById[id];
+    if (!f || !f.agent_url) return;
+    currentFrameId = f.id;
+    document.getElementById('agent-modal-title').innerHTML = '<i class="fa-solid fa-microchip me-2"></i>Agent: ' + (f.name || f.ip);
+    document.getElementById('agent-modal-alerts').innerHTML = '';
+    document.getElementById('cmd-output').style.display = 'none';
+    document.getElementById('cmd-output').textContent = '';
+    loadAgentInfo();
+    agentModal.show();
 }
 
 function togglePinned(selectedId) {
@@ -580,16 +630,29 @@ function loadAgentInfo() {
 
 function agentAction(path, method, confirmMsg) {
     if (confirmMsg && !confirm(confirmMsg)) return;
-    agentFetch(path, method || 'POST').then(function() { showModalAlert('Done.'); loadAgentInfo(); })
-        .catch(function() { showModalAlert('Agent action failed.', 'danger'); });
+    agentFetch(path, method || 'POST').then(function() { showAgentAlert('Done.'); loadAgentInfo(); })
+        .catch(function() { showAgentAlert('Agent action failed.', 'danger'); });
 }
 
 function runCmd(path, label) {
     var out = document.getElementById('cmd-output');
     out.style.display = 'block';
     out.textContent = 'Running ' + label + '...\n';
-    agentFetch(path, 'POST').then(function(d) {
-        out.textContent += (d.output || d.message || JSON.stringify(d));
+    fetch('/api/frames/' + currentFrameId + '/agent/' + path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+    }).then(function(resp) {
+        var reader = resp.body.getReader();
+        var decoder = new TextDecoder();
+        function readChunk() {
+            return reader.read().then(function(chunk) {
+                if (chunk.done) return;
+                out.textContent += decoder.decode(chunk.value, { stream: true });
+                out.scrollTop = out.scrollHeight;
+                return readChunk();
+            });
+        }
+        return readChunk();
     }).catch(function(e) { out.textContent += '\nError: ' + e; });
 }
 
@@ -597,8 +660,8 @@ function setHostname() {
     var h = document.getElementById('hostname-input').value.trim();
     if (!h) return;
     agentFetch('network/hostname', 'POST', { hostname: h })
-        .then(function() { showModalAlert('Hostname updated. Reboot to apply.'); })
-        .catch(function() { showModalAlert('Failed to set hostname.', 'danger'); });
+        .then(function() { showAgentAlert('Hostname updated. Reboot to apply.'); })
+        .catch(function() { showAgentAlert('Failed to set hostname.', 'danger'); });
 }
 
 function scanWifi() {
@@ -614,8 +677,8 @@ function connectWifi() {
     var pass = document.getElementById('wifi-pass').value;
     if (!ssid) return;
     agentFetch('network/wifi/connect', 'POST', { ssid: ssid, password: pass })
-        .then(function() { showModalAlert('WiFi connection initiated.'); })
-        .catch(function() { showModalAlert('Failed to connect.', 'danger'); });
+        .then(function() { showAgentAlert('WiFi connection initiated.'); })
+        .catch(function() { showAgentAlert('Failed to connect.', 'danger'); });
 }
 
 loadAll();
