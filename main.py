@@ -45,7 +45,8 @@ db.init_app(app)
 
 _PUBLIC_ENDPOINTS = {
     'frame', 'manifest', 'frame_checkin', 'frame_next',
-    'agent_register', 'agent_heartbeat', 'install_script', 'send_images',
+    'agent_register', 'agent_heartbeat', 'install_script',
+    'serve_agent', 'serve_agent_requirements', 'send_images',
     'admin_login', 'admin_logout', 'admin_setup', 'static',
 }
 
@@ -495,6 +496,16 @@ def install_script():
         render_template('install.sh', base_url=base_url),
         mimetype='text/plain',
     )
+
+
+@app.route('/agent.py')
+def serve_agent():
+    return send_from_directory('agent', 'agent.py', mimetype='text/plain')
+
+
+@app.route('/agent-requirements.txt')
+def serve_agent_requirements():
+    return send_from_directory('agent', 'requirements.txt', mimetype='text/plain')
 
 
 # ---------------------------------------------------------------------------

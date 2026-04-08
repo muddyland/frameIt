@@ -63,14 +63,9 @@ if [[ -z "$KIOSK_HOME" ]]; then
     exit 1
 fi
 
-ARCH=$(uname -m)
-case "$ARCH" in
-    aarch64) BINARY="frameit-agent-arm64.pyz" ;;
-    armv7l)  BINARY="frameit-agent-armv7.pyz" ;;
-    *)       echo "Unsupported architecture: $ARCH"; exit 1 ;;
-esac
-
-INSTALL_PATH="/usr/local/bin/frameit-agent"
+AGENT_DIR="/opt/frameit-agent"
+AGENT_PY="$AGENT_DIR/agent.py"
+AGENT_VENV="$AGENT_DIR/venv"
 KIOSK_SCRIPT="/usr/local/bin/frameit-kiosk.sh"
 ENV_FILE="/etc/frameit-agent.env"
 SUDOERS_FILE="/etc/sudoers.d/frameit-agent"
@@ -180,13 +175,16 @@ StandardError=journal
 WantedBy=multi-user.target
 EOF
 
-# ── Agent binary ──────────────────────────────────────────────────────────────
-echo "==> Downloading FrameIT agent ($ARCH)..."
-TMPBIN=$(mktemp)
-curl -fsSL "${SERVER}/static/dist/${BINARY}" -o "$TMPBIN"
-$SUDO mv "$TMPBIN" "$INSTALL_PATH"
-$SUDO chmod +x "$INSTALL_PATH"
-echo "    Installed to $INSTALL_PATH"
+# ── Agent source + virtualenv ─────────────────────────────────────────────────
+echo "==> Downloading FrameIT agent..."
+$SUDO mkdir -p "$AGENT_DIR"
+curl -fsSL "${SERVER}/agent.py"               | $SUDO tee "$AGENT_PY" > /dev/null
+curl -fsSL "${SERVER}/agent-requirements.txt" | $SUDO tee "$AGENT_DIR/requirements.txt" > /dev/null
+$SUDO chown -R "$KIOSK_USER:$KIOSK_USER" "$AGENT_DIR"
+echo "==> Creating Python virtualenv..."
+$SUDO -u "$KIOSK_USER" python3 -m venv "$AGENT_VENV"
+$SUDO -u "$KIOSK_USER" "$AGENT_VENV/bin/pip" install --quiet -r "$AGENT_DIR/requirements.txt"
+echo "    Installed to $AGENT_DIR"
 
 # ── Environment config ────────────────────────────────────────────────────────
 echo "==> Writing environment config..."
@@ -214,7 +212,7 @@ Wants=network-online.target
 [Service]
 User=$KIOSK_USER
 EnvironmentFile=$ENV_FILE
-ExecStart=$INSTALL_PATH
+ExecStart=$AGENT_VENV/bin/python $AGENT_PY
 Restart=always
 RestartSec=10
 StandardOutput=journal

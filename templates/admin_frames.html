@@ -52,7 +52,19 @@
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <p class="text-secondary small">Run this command on the Raspberry Pi as root. The agent will install and register automatically.</p>
+                <p class="text-secondary small mb-2">Run this command on the Raspberry Pi. The agent will install and register automatically.</p>
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox" id="custom-user-check" onchange="toggleCustomUser()">
+                    <label class="form-check-label text-secondary small" for="custom-user-check">
+                        I use a user other than <code>pi</code>
+                    </label>
+                </div>
+                <div id="custom-user-wrap" class="mb-3" style="display:none">
+                    <input type="text" class="form-control bg-dark text-white border-secondary form-control-sm"
+                           id="custom-user-input" placeholder="e.g. myuser" oninput="rebuildCmd()"
+                           style="max-width:200px">
+                    <div class="form-text">Must be a valid Unix username (lowercase letters, digits, hyphens).</div>
+                </div>
                 <div class="input-group">
                     <input type="text" class="form-control bg-black text-success border-secondary font-monospace small" id="install-cmd" readonly>
                     <button class="btn btn-outline-light" onclick="copyCmd()"><i class="fa-solid fa-copy me-1"></i>Copy</button>
@@ -293,10 +305,33 @@ function generateToken() {
         .catch(function() { showAlert('Failed to generate token.', 'danger'); });
 }
 
+var _baseInstallCmd = '';
+
 function showInstall(cmd) {
+    _baseInstallCmd = cmd;
+    document.getElementById('custom-user-check').checked = false;
+    document.getElementById('custom-user-wrap').style.display = 'none';
+    document.getElementById('custom-user-input').value = '';
+    document.getElementById('copy-feedback').style.display = 'none';
+    document.getElementById('install-cmd').value = cmd;
+    installModal.show();
+}
+
+function toggleCustomUser() {
+    var checked = document.getElementById('custom-user-check').checked;
+    document.getElementById('custom-user-wrap').style.display = checked ? 'block' : 'none';
+    rebuildCmd();
+}
+
+function rebuildCmd() {
+    var user = document.getElementById('custom-user-input').value.trim();
+    var checked = document.getElementById('custom-user-check').checked;
+    var cmd = _baseInstallCmd;
+    if (checked && user) {
+        cmd += ' --user ' + user;
+    }
     document.getElementById('install-cmd').value = cmd;
     document.getElementById('copy-feedback').style.display = 'none';
-    installModal.show();
 }
 
 function copyCmd() {

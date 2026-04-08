@@ -43,9 +43,10 @@ class TestInstallScript:
         resp = client.get('/install.sh')
         assert 'text/plain' in resp.content_type
 
-    def test_contains_arch_detection(self, client):
+    def test_downloads_agent_py(self, client):
         resp = client.get('/install.sh')
-        assert b'uname -m' in resp.data
+        assert b'agent.py' in resp.data
+        assert b'agent-requirements.txt' in resp.data
 
     def test_contains_systemd_install(self, client):
         resp = client.get('/install.sh')
