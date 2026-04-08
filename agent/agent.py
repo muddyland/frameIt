@@ -23,7 +23,7 @@ from functools import wraps
 
 import psutil
 import requests
-from flask import Flask, Response, jsonify, request, stream_with_context
+from flask import Flask, Response, jsonify, request
 
 # ---------------------------------------------------------------------------
 # Config
@@ -152,31 +152,27 @@ def agent_update():
 @require_token
 def apt_update():
     def _stream():
-        proc = subprocess.Popen(
+        with subprocess.Popen(
             ['sudo', 'apt-get', 'update'],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, bufsize=1,
-        )
-        for line in proc.stdout:
-            yield line
-        proc.wait()
-    return Response(stream_with_context(_stream()), mimetype='text/plain')
+        ) as proc:
+            yield from proc.stdout
+    return Response(_stream(), mimetype='text/plain')
 
 
 @app.route('/system/upgrade', methods=['POST'])
 @require_token
 def apt_upgrade():
     def _stream():
-        proc = subprocess.Popen(
+        with subprocess.Popen(
             ['sudo', 'apt-get', 'upgrade', '-y'],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, bufsize=1,
             env={**os.environ, 'DEBIAN_FRONTEND': 'noninteractive'},
-        )
-        for line in proc.stdout:
-            yield line
-        proc.wait()
-    return Response(stream_with_context(_stream()), mimetype='text/plain')
+        ) as proc:
+            yield from proc.stdout
+    return Response(_stream(), mimetype='text/plain')
 
 
 @app.route('/system/services')

@@ -11,8 +11,11 @@ FrameIT turns a Raspberry Pi and a monitor into a self-updating movie poster dis
 - Upload and manage movie poster images with custom banner text above and below
 - Add YouTube trailers that play automatically in kiosk mode
 - Multiple frames, each independently configurable (rotation, interval, pool or pinned content)
-- Per-frame agent for remote Pi management: reboot, apt update/upgrade, network config, display and browser control
+- Per-frame agent for remote Pi management: reboot, apt update/upgrade (streamed output), network config, display and browser control
 - Token-based agent registration with a one-command installer
+- Agent update from the server — push new agent code without touching the Pi
+- Configurable default refresh interval, overridable per frame
+- Separate Configure and Agent modals in the Frames admin panel
 - Dark admin UI with authentication — setup on first visit, no config files needed
 - Works behind a reverse proxy
 
@@ -144,10 +147,15 @@ Rotation is configured per-frame from the admin panel (0°, 90°, 180°, 270°).
 
 | Section  | Description |
 |----------|-------------|
-| Dashboard | Live status of all registered frames |
+| Dashboard | Live status of all registered frames — frame online/offline dot, agent heartbeat indicator |
 | Posters  | Upload images, set banner text, manage the rotation pool |
 | Trailers | Add YouTube trailers by URL or video ID |
-| Frames   | Register new frames (generate token → copy install command), configure each display, and manage the agent |
+| Frames   | Register new frames (generate token → copy install command), set a default refresh interval, configure each display |
+
+Each registered frame has two buttons:
+
+- **Configure** — display name, rotation (0°/90°/180°/270°), refresh interval, content mode (pool or pinned item)
+- **Agent** (enabled once the agent is installed) — system info, services, Chromium controls, display on/off, `apt update`/`apt upgrade` with live streamed output, reboot, agent self-update, network / WiFi config
 
 ---
 

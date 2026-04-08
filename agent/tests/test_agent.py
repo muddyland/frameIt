@@ -72,29 +72,27 @@ class TestReboot:
 # ── apt update / upgrade ──────────────────────────────────────────────────
 
 class TestAptCommands:
-    def _fake_run(self, cmd, **kwargs):
-        result = MagicMock()
-        result.stdout = 'fake output\n'
-        result.stderr = ''
-        result.returncode = 0
-        return result
+    def _fake_popen(self, cmd, **kwargs):
+        proc = MagicMock()
+        proc.stdout = iter(['fake output\n'])
+        proc.__enter__ = lambda s: s
+        proc.__exit__ = MagicMock(return_value=False)
+        return proc
 
     def test_apt_update_calls_apt(self, client, auth_headers):
-        with patch('agent.agent.subprocess.run', side_effect=self._fake_run) as mock_run:
+        with patch('agent.agent.subprocess.Popen', side_effect=self._fake_popen) as mock_popen:
             resp = client.post('/system/update', headers=auth_headers)
         assert resp.status_code == 200
-        body = resp.get_json()
-        assert body['returncode'] == 0
-        assert 'output' in body
-        cmd_used = mock_run.call_args[0][0]
+        assert 'text/plain' in resp.content_type
+        cmd_used = mock_popen.call_args[0][0]
         assert 'apt-get' in cmd_used
         assert 'update' in cmd_used
 
     def test_apt_upgrade_calls_apt(self, client, auth_headers):
-        with patch('agent.agent.subprocess.run', side_effect=self._fake_run) as mock_run:
+        with patch('agent.agent.subprocess.Popen', side_effect=self._fake_popen) as mock_popen:
             resp = client.post('/system/upgrade', headers=auth_headers)
         assert resp.status_code == 200
-        cmd_used = mock_run.call_args[0][0]
+        cmd_used = mock_popen.call_args[0][0]
         assert 'upgrade' in cmd_used
 
 
