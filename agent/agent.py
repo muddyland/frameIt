@@ -155,7 +155,7 @@ _STREAM_HEADERS = {'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'}
 @require_token
 def apt_update():
     try:
-        proc = subprocess.Popen(
+        proc = subprocess.Popen(  # pylint: disable=consider-using-with
             ['sudo', 'apt-get', 'update'],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, bufsize=1,
@@ -174,7 +174,7 @@ def apt_update():
 @require_token
 def apt_upgrade():
     try:
-        proc = subprocess.Popen(
+        proc = subprocess.Popen(  # pylint: disable=consider-using-with
             ['sudo', 'apt-get', 'upgrade', '-y'],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, bufsize=1,
