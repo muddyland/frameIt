@@ -108,9 +108,11 @@ class Settings(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     default_title_above = db.Column(db.String(255), nullable=True, default='Now Playing')
     default_title_below = db.Column(db.String(255), nullable=True, default='')
+    default_interval_seconds = db.Column(db.Integer, nullable=False, default=300)
 
     def to_dict(self):
         return {
             'default_title_above': self.default_title_above or '',
             'default_title_below': self.default_title_below or '',
+            'default_interval_seconds': self.default_interval_seconds or 300,
         }

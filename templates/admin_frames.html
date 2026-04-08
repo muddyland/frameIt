@@ -15,6 +15,24 @@
     </div>
 </div>
 
+<!-- ── Default interval ──────────────────────────────────────────────────── -->
+<div class="card bg-secondary bg-opacity-10 border-secondary mb-4">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+            <h5 class="card-title mb-0"><i class="fa-solid fa-clock me-2"></i>Default Refresh Interval</h5>
+            <button class="btn btn-primary btn-sm" onclick="saveDefaultInterval()"><i class="fa-solid fa-floppy-disk me-1"></i>Save</button>
+        </div>
+        <p class="text-secondary small mb-3">Applied to newly registered frames. Existing frames can override this in Configure.</p>
+        <div class="row g-2 align-items-end">
+            <div class="col-auto">
+                <input type="number" class="form-control bg-dark text-white border-secondary" id="default-interval"
+                       min="10" max="86400" style="width:120px" placeholder="300">
+            </div>
+            <div class="col-auto text-secondary small">seconds</div>
+        </div>
+    </div>
+</div>
+
 <!-- ── Registered frames ─────────────────────────────────────────────────── -->
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h5 class="mb-0"><i class="fa-solid fa-tv me-2"></i>Registered Frames</h5>
@@ -76,6 +94,7 @@
                     <div class="col-md-3">
                         <label class="form-label">Interval (seconds)</label>
                         <input type="number" class="form-control bg-dark text-white border-secondary" id="cfg-interval" min="10" max="86400">
+                        <div class="form-text" id="cfg-interval-hint"></div>
                     </div>
                     <div class="col-md-4">
                         <label class="form-label">Content Mode</label>
@@ -210,6 +229,34 @@ var installModal = new bootstrap.Modal(document.getElementById('install-modal'))
 var currentFrameId = null;
 var pendingDeleteId = null;
 var framesById = {};
+var defaultIntervalSeconds = 300;
+
+// ── Default interval settings ──────────────────────────────────────────────
+
+function loadDefaultInterval() {
+    fetch('/api/settings')
+        .then(function(r) { return r.json(); })
+        .then(function(s) {
+            defaultIntervalSeconds = s.default_interval_seconds || 300;
+            document.getElementById('default-interval').value = defaultIntervalSeconds;
+        });
+}
+
+function saveDefaultInterval() {
+    var val = parseInt(document.getElementById('default-interval').value);
+    if (!val || val < 10) { showAlert('Interval must be at least 10 seconds.', 'danger'); return; }
+    fetch('/api/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ default_interval_seconds: val }),
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(s) {
+        defaultIntervalSeconds = s.default_interval_seconds;
+        showAlert('Default interval saved.');
+    })
+    .catch(function() { showAlert('Failed to save.', 'danger'); });
+}
 
 // ── Token / registration ───────────────────────────────────────────────────
 
@@ -299,6 +346,7 @@ function loadFrames() {
 function loadAll() {
     loadTokens();
     loadFrames();
+    loadDefaultInterval();
 }
 
 function cleanupFrames() {
@@ -342,6 +390,7 @@ function openConfig(id) {
     document.getElementById('cfg-name').value = f.name || '';
     document.getElementById('cfg-rotation').value = f.rotation;
     document.getElementById('cfg-interval').value = f.interval_seconds;
+    document.getElementById('cfg-interval-hint').textContent = 'Default: ' + defaultIntervalSeconds + 's';
     document.getElementById('cfg-mode').value = f.content_mode;
     document.getElementById('cfg-pinned-type').value = f.pinned_type || 'poster';
     document.getElementById('config-modal-title').innerHTML = '<i class="fa-solid fa-gear me-2"></i>Configure: ' + (f.name || f.ip);

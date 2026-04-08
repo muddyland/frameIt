@@ -87,7 +87,8 @@ def get_settings():
     """Return the singleton Settings row, creating it with defaults if absent."""
     s = db.session.get(Settings, 1)
     if not s:
-        s = Settings(id=1, default_title_above='Now Playing', default_title_below='')
+        s = Settings(id=1, default_title_above='Now Playing', default_title_below='',
+                     default_interval_seconds=300)
         db.session.add(s)
         db.session.commit()
     return s
@@ -129,7 +130,9 @@ def frame_checkin():
     if not frame:
         if bypass:
             # Preview/bypass mode — create a temporary anonymous frame
-            frame = Frame(ip=ip, name=f'[Preview] {body.get("hostname", ip)}')
+            settings = get_settings()
+            frame = Frame(ip=ip, name=f'[Preview] {body.get("hostname", ip)}',
+                          interval_seconds=settings.default_interval_seconds)
             db.session.add(frame)
             db.session.commit()
         else:
@@ -429,7 +432,9 @@ def agent_register():
 
     frame = Frame.query.filter_by(ip=ip).first()
     if not frame:
-        frame = Frame(ip=ip, name=hostname)
+        settings = get_settings()
+        frame = Frame(ip=ip, name=hostname,
+                      interval_seconds=settings.default_interval_seconds)
         db.session.add(frame)
     frame.agent_url = agent_url
     frame.agent_token = token_value
@@ -509,6 +514,8 @@ def update_settings():
         s.default_title_above = body['default_title_above'].strip() or None
     if 'default_title_below' in body:
         s.default_title_below = body['default_title_below'].strip() or None
+    if 'default_interval_seconds' in body:
+        s.default_interval_seconds = max(10, int(body['default_interval_seconds']))
     db.session.commit()
     return jsonify(s.to_dict())
 
