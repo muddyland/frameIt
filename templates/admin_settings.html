@@ -1,0 +1,211 @@
+{% extends "admin_main.html" %}
+{% block title %}Settings{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="mb-0 text-white">Settings</h2>
+</div>
+
+<div id="settings-alerts"></div>
+
+<div class="row g-4">
+
+    <!-- New frame defaults -->
+    <div class="col-12 col-lg-6">
+        <div class="card bg-secondary bg-opacity-10 border-secondary h-100">
+            <div class="card-header border-secondary">
+                <h6 class="mb-0 text-white"><i class="fa-solid fa-tv me-2 text-secondary"></i>New Frame Defaults</h6>
+                <div class="small text-secondary mt-1">Applied when a frame registers for the first time.</div>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label">Default Interval</label>
+                    <div class="input-group">
+                        <input type="number" class="form-control bg-dark text-white border-secondary"
+                               id="s-interval" min="10" step="10">
+                        <span class="input-group-text bg-dark text-secondary border-secondary">seconds</span>
+                    </div>
+                    <div class="form-text">How long each poster is shown before cycling.</div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Default Rotation</label>
+                    <select class="form-select bg-dark text-white border-secondary" id="s-rotation">
+                        <option value="0">0° — Landscape (normal)</option>
+                        <option value="90">90° — Portrait (rotated right)</option>
+                        <option value="180">180° — Upside down</option>
+                        <option value="270">270° — Portrait (rotated left)</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Default Content Mode</label>
+                    <select class="form-select bg-dark text-white border-secondary" id="s-content-mode" onchange="onModeChange()">
+                        <option value="pool">Pool — cycle through all active content</option>
+                        <option value="pinned">Pinned — show one specific item</option>
+                    </select>
+                </div>
+                <div id="s-pinned-section" class="mb-0" style="display:none">
+                    <div class="mb-2">
+                        <label class="form-label">Pinned Type</label>
+                        <select class="form-select bg-dark text-white border-secondary" id="s-pinned-type" onchange="onPinnedTypeChange()">
+                            <option value="poster">Poster</option>
+                            <option value="trailer">Trailer</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="form-label">Pinned Item</label>
+                        <select class="form-select bg-dark text-white border-secondary" id="s-pinned-id">
+                            <option value="">— select —</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Poster text defaults -->
+    <div class="col-12 col-lg-6">
+        <div class="card bg-secondary bg-opacity-10 border-secondary h-100">
+            <div class="card-header border-secondary">
+                <h6 class="mb-0 text-white"><i class="fa-solid fa-image me-2 text-secondary"></i>Default Poster Text</h6>
+                <div class="small text-secondary mt-1">Used when a poster has no per-poster text set.</div>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label">Text Above Poster</label>
+                    <input type="text" class="form-control bg-dark text-white border-secondary"
+                           id="s-title-above" placeholder="e.g. Now Playing" maxlength="255">
+                    <div class="form-text">Shown in the banner above the image. Leave blank to hide.</div>
+                </div>
+                <div class="mb-0">
+                    <label class="form-label">Text Below Poster</label>
+                    <input type="text" class="form-control bg-dark text-white border-secondary"
+                           id="s-title-below" placeholder="e.g. Cinema Classics" maxlength="255">
+                    <div class="form-text">Shown in the banner below the image. Leave blank to hide.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<div class="mt-4">
+    <button class="btn btn-primary px-4" onclick="saveSettings()">
+        <i class="fa-solid fa-floppy-disk me-1"></i>Save Settings
+    </button>
+    <button class="btn btn-outline-secondary ms-2" onclick="loadSettings()">
+        <i class="fa-solid fa-rotate-left me-1"></i>Reset
+    </button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function showSettingsAlert(msg, type) {
+    showModalAlert(msg, type || 'success', 'settings-alerts');
+}
+
+// Override alertId default so showModalAlert targets the right div
+function showModalAlert(msg, type, alertId) {
+    type    = type    || 'success';
+    alertId = alertId || 'alerts';
+    var el = document.getElementById(alertId);
+    if (!el) return;
+    var id = 'salert-' + Date.now();
+    el.innerHTML = '';
+    el.insertAdjacentHTML('beforeend',
+        '<div id="' + id + '" class="alert alert-' + type + ' alert-dismissible fade show py-2" role="alert">' +
+        msg + '<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>');
+    setTimeout(function () { var a = document.getElementById(id); if (a) a.remove(); }, 4000);
+}
+
+var _posters = [], _trailers = [];
+
+function onModeChange() {
+    var pinned = document.getElementById('s-content-mode').value === 'pinned';
+    document.getElementById('s-pinned-section').style.display = pinned ? '' : 'none';
+}
+
+function onPinnedTypeChange() {
+    populatePinnedItems(document.getElementById('s-pinned-type').value, null);
+}
+
+function populatePinnedItems(type, selectedId) {
+    var sel = document.getElementById('s-pinned-id');
+    var items = type === 'poster' ? _posters : _trailers;
+    sel.innerHTML = '<option value="">— select —</option>' +
+        items.map(function(i) {
+            var label = type === 'poster' ? (i.title_above || i.filename) : i.title;
+            return '<option value="' + i.id + '"' + (i.id === selectedId ? ' selected' : '') + '>' + label + '</option>';
+        }).join('');
+}
+
+function loadPinnedChoices(callback) {
+    Promise.all([
+        fetch('/api/posters').then(function(r) { return r.json(); }),
+        fetch('/api/trailers').then(function(r) { return r.json(); }),
+    ]).then(function(results) {
+        _posters  = (results[0] || []).filter(function(p) { return p.active; });
+        _trailers = (results[1] || []).filter(function(t) { return t.active; });
+        if (callback) callback();
+    }).catch(function() {});
+}
+
+function loadSettings() {
+    loadPinnedChoices(function() {
+        fetch('/api/settings')
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                document.getElementById('s-interval').value      = d.default_interval_seconds || 300;
+                document.getElementById('s-rotation').value      = d.default_rotation != null ? d.default_rotation : 0;
+                document.getElementById('s-content-mode').value = d.default_content_mode || 'pool';
+                document.getElementById('s-title-above').value  = d.default_title_above || '';
+                document.getElementById('s-title-below').value  = d.default_title_below || '';
+                onModeChange();
+                if (d.default_content_mode === 'pinned' && d.default_pinned_type) {
+                    document.getElementById('s-pinned-type').value = d.default_pinned_type;
+                    populatePinnedItems(d.default_pinned_type, d.default_pinned_id);
+                } else {
+                    populatePinnedItems('poster', null);
+                }
+            })
+            .catch(function() { showSettingsAlert('Failed to load settings.', 'danger'); });
+    });
+}
+
+function saveSettings() {
+    var interval = parseInt(document.getElementById('s-interval').value);
+    if (isNaN(interval) || interval < 10) {
+        showSettingsAlert('Interval must be at least 10 seconds.', 'danger');
+        return;
+    }
+    var mode = document.getElementById('s-content-mode').value;
+    var pinnedType = mode === 'pinned' ? document.getElementById('s-pinned-type').value : null;
+    var pinnedId   = mode === 'pinned' ? (parseInt(document.getElementById('s-pinned-id').value) || null) : null;
+    if (mode === 'pinned' && !pinnedId) {
+        showSettingsAlert('Select an item to pin.', 'danger');
+        return;
+    }
+    fetch('/api/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            default_interval_seconds: interval,
+            default_rotation:         parseInt(document.getElementById('s-rotation').value),
+            default_content_mode:     mode,
+            default_pinned_type:      pinnedType,
+            default_pinned_id:        pinnedId,
+            default_title_above:      document.getElementById('s-title-above').value,
+            default_title_below:      document.getElementById('s-title-below').value,
+        }),
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        if (d.error) { showSettingsAlert(d.error, 'danger'); return; }
+        showSettingsAlert('Settings saved.');
+    })
+    .catch(function() { showSettingsAlert('Failed to save settings.', 'danger'); });
+}
+
+loadSettings();
+</script>
+{% endblock %}

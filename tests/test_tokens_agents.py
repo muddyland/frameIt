@@ -86,12 +86,24 @@ class TestAgentRegister:
                            json={'token': 'bad_token', 'hostname': 'pi', 'port': 5001})
         assert resp.status_code == 401
 
-    def test_already_used_token_returns_401(self, client):
+    def test_same_ip_reregister_allowed(self, client):
+        # Agent restart / post-update re-registration from same IP must succeed
         token_val = client.post('/api/tokens').get_json()['token']
         client.post('/api/agents/register',
                     json={'token': token_val, 'hostname': 'pi', 'port': 5001})
         resp = client.post('/api/agents/register',
                            json={'token': token_val, 'hostname': 'pi', 'port': 5001})
+        assert resp.status_code == 200
+        assert 'frame_id' in resp.get_json()
+
+    def test_different_ip_used_token_returns_401(self, client):
+        # A different machine cannot hijack an already-used token
+        token_val = client.post('/api/tokens').get_json()['token']
+        client.post('/api/agents/register',
+                    json={'token': token_val, 'hostname': 'pi', 'port': 5001})
+        resp = client.post('/api/agents/register',
+                           json={'token': token_val, 'hostname': 'pi', 'port': 5001},
+                           environ_base={'REMOTE_ADDR': '10.0.0.99'})
         assert resp.status_code == 401
 
     def test_register_creates_frame_if_not_exists(self, client):

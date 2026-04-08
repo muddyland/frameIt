@@ -111,10 +111,18 @@ class Settings(db.Model):
     default_title_above = db.Column(db.String(255), nullable=True, default='Now Playing')
     default_title_below = db.Column(db.String(255), nullable=True, default='')
     default_interval_seconds = db.Column(db.Integer, nullable=False, default=300)
+    default_rotation = db.Column(db.Integer, nullable=False, default=0)
+    default_content_mode = db.Column(db.String(10), nullable=False, default='pool')
+    default_pinned_type = db.Column(db.String(10), nullable=True)   # 'poster' or 'trailer'
+    default_pinned_id = db.Column(db.Integer, nullable=True)
 
     def to_dict(self):
         return {
             'default_title_above': self.default_title_above or '',
             'default_title_below': self.default_title_below or '',
             'default_interval_seconds': self.default_interval_seconds or 300,
+            'default_rotation': self.default_rotation if self.default_rotation is not None else 0,
+            'default_content_mode': self.default_content_mode or 'pool',
+            'default_pinned_type': self.default_pinned_type or '',
+            'default_pinned_id': self.default_pinned_id,
         }

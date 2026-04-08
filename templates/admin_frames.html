@@ -15,24 +15,6 @@
     </div>
 </div>
 
-<!-- ── Default interval ──────────────────────────────────────────────────── -->
-<div class="card bg-secondary bg-opacity-10 border-secondary mb-4">
-    <div class="card-body">
-        <div class="d-flex justify-content-between align-items-center mb-1">
-            <h5 class="card-title mb-0"><i class="fa-solid fa-clock me-2"></i>Default Refresh Interval</h5>
-            <button class="btn btn-primary btn-sm" onclick="saveDefaultInterval()"><i class="fa-solid fa-floppy-disk me-1"></i>Save</button>
-        </div>
-        <p class="text-secondary small mb-3">Applied to newly registered frames. Existing frames can override this in Configure.</p>
-        <div class="row g-2 align-items-end">
-            <div class="col-auto">
-                <input type="number" class="form-control bg-dark text-white border-secondary" id="default-interval"
-                       min="10" max="86400" style="width:120px" placeholder="300">
-            </div>
-            <div class="col-auto text-secondary small">seconds</div>
-        </div>
-    </div>
-</div>
-
 <!-- ── Registered frames ─────────────────────────────────────────────────── -->
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h5 class="mb-0"><i class="fa-solid fa-tv me-2"></i>Registered Frames</h5>
@@ -106,7 +88,6 @@
                     <div class="col-md-3">
                         <label class="form-label">Interval (seconds)</label>
                         <input type="number" class="form-control bg-dark text-white border-secondary" id="cfg-interval" min="10" max="86400">
-                        <div class="form-text" id="cfg-interval-hint"></div>
                     </div>
                     <div class="col-md-4">
                         <label class="form-label">Content Mode</label>
@@ -162,9 +143,7 @@
                         <h6 class="text-secondary mb-2">Chromium</h6>
                         <div id="browser-status" class="small text-secondary mb-2">Loading...</div>
                         <div class="d-flex gap-2">
-                            <button class="btn btn-sm btn-outline-success flex-fill" onclick="agentAction('browser/start', 'POST', null)"><i class="fa-solid fa-play me-1"></i>Start</button>
-                            <button class="btn btn-sm btn-outline-warning flex-fill" onclick="agentAction('browser/restart', 'POST', null)"><i class="fa-solid fa-rotate-right me-1"></i>Restart</button>
-                            <button class="btn btn-sm btn-outline-danger flex-fill" onclick="agentAction('browser/stop', 'POST', null)"><i class="fa-solid fa-stop me-1"></i>Stop</button>
+                            <button id="browser-action-btn" class="btn btn-sm btn-outline-success flex-fill" onclick="browserStartRestart()"><i class="fa-solid fa-play me-1"></i>Start</button>
                         </div>
                     </div>
                 </div>
@@ -269,35 +248,13 @@ var installModal = new bootstrap.Modal(document.getElementById('install-modal'))
 var currentFrameId = null;
 var pendingDeleteId = null;
 var framesById = {};
-var defaultIntervalSeconds = 300;
 var serverAgentVersion = null;
+var agentPollTimer = null;
 
-// ── Default interval settings ──────────────────────────────────────────────
-
-function loadDefaultInterval() {
-    fetch('/api/settings')
-        .then(function(r) { return r.json(); })
-        .then(function(s) {
-            defaultIntervalSeconds = s.default_interval_seconds || 300;
-            document.getElementById('default-interval').value = defaultIntervalSeconds;
-        });
-}
-
-function saveDefaultInterval() {
-    var val = parseInt(document.getElementById('default-interval').value);
-    if (!val || val < 10) { showAlert('Interval must be at least 10 seconds.', 'danger'); return; }
-    fetch('/api/settings', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ default_interval_seconds: val }),
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(s) {
-        defaultIntervalSeconds = s.default_interval_seconds;
-        showAlert('Default interval saved.');
-    })
-    .catch(function() { showAlert('Failed to save.', 'danger'); });
-}
+// Stop polling when the agent modal is closed
+document.getElementById('agent-modal').addEventListener('hide.bs.modal', function() {
+    if (agentPollTimer) { clearInterval(agentPollTimer); agentPollTimer = null; }
+});
 
 // ── Token / registration ───────────────────────────────────────────────────
 
@@ -418,7 +375,6 @@ function loadFrames() {
 
 function loadAll() {
     loadTokens();
-    loadDefaultInterval();
     fetch('/api/agent/version')
         .then(function(r) { return r.json(); })
         .then(function(d) { serverAgentVersion = d.version; })
@@ -466,7 +422,6 @@ function openConfig(id) {
     document.getElementById('cfg-name').value = f.name || '';
     document.getElementById('cfg-rotation').value = f.rotation;
     document.getElementById('cfg-interval').value = f.interval_seconds;
-    document.getElementById('cfg-interval-hint').textContent = 'Default: ' + defaultIntervalSeconds + 's';
     document.getElementById('cfg-mode').value = f.content_mode;
     document.getElementById('cfg-pinned-type').value = f.pinned_type || 'poster';
     document.getElementById('config-modal-title').innerHTML = '<i class="fa-solid fa-gear me-2"></i>Configure: ' + (f.name || f.ip);
@@ -484,6 +439,9 @@ function openAgent(id) {
     document.getElementById('cmd-output').style.display = 'none';
     document.getElementById('cmd-output').textContent = '';
     loadAgentInfo();
+    // Refresh stats every 5 seconds while the modal is open
+    if (agentPollTimer) clearInterval(agentPollTimer);
+    agentPollTimer = setInterval(loadAgentInfo, 5000);
     agentModal.show();
 }
 
@@ -625,6 +583,15 @@ function loadAgentInfo() {
     }).catch(function() {});
     agentFetch('browser/status').then(function(d) {
         document.getElementById('browser-status').textContent = 'Chromium: ' + (d.running ? 'Running' : 'Stopped');
+        var btn = document.getElementById('browser-action-btn');
+        btn.dataset.running = d.running ? 'true' : 'false';
+        if (d.running) {
+            btn.className = 'btn btn-sm btn-outline-warning flex-fill';
+            btn.innerHTML = '<i class="fa-solid fa-rotate-right me-1"></i>Restart';
+        } else {
+            btn.className = 'btn btn-sm btn-outline-success flex-fill';
+            btn.innerHTML = '<i class="fa-solid fa-play me-1"></i>Start';
+        }
     }).catch(function() {});
 }
 
@@ -632,6 +599,12 @@ function agentAction(path, method, confirmMsg) {
     if (confirmMsg && !confirm(confirmMsg)) return;
     agentFetch(path, method || 'POST').then(function() { showAgentAlert('Done.'); loadAgentInfo(); })
         .catch(function() { showAgentAlert('Agent action failed.', 'danger'); });
+}
+
+function browserStartRestart() {
+    var btn = document.getElementById('browser-action-btn');
+    var running = btn.dataset.running === 'true';
+    agentAction(running ? 'browser/restart' : 'browser/start', 'POST', null);
 }
 
 function runCmd(path, label) {
@@ -642,6 +615,16 @@ function runCmd(path, label) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
     }).then(function(resp) {
+        var ct = resp.headers.get('Content-Type') || '';
+        if (ct.indexOf('application/json') !== -1) {
+            return resp.json().then(function(d) {
+                out.textContent += d.output || JSON.stringify(d, null, 2);
+                if (d.returncode !== undefined && d.returncode !== 0) {
+                    out.textContent += '\n[Exit code: ' + d.returncode + ']';
+                }
+                out.scrollTop = out.scrollHeight;
+            });
+        }
         var reader = resp.body.getReader();
         var decoder = new TextDecoder();
         function readChunk() {

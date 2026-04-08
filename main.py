@@ -133,8 +133,13 @@ def frame_checkin():
         if bypass:
             # Preview/bypass mode — create a temporary anonymous frame
             settings = get_settings()
+            pinned = settings.default_content_mode == 'pinned'
             frame = Frame(ip=ip, name=f'[Preview] {body.get("hostname", ip)}',
-                          interval_seconds=settings.default_interval_seconds)
+                          interval_seconds=settings.default_interval_seconds,
+                          rotation=settings.default_rotation,
+                          content_mode=settings.default_content_mode,
+                          pinned_type=settings.default_pinned_type if pinned else None,
+                          pinned_id=settings.default_pinned_id if pinned else None)
             db.session.add(frame)
             db.session.commit()
         else:
@@ -426,17 +431,33 @@ def agent_register():
     token = RegistrationToken.query.filter_by(token=token_value).first()
     if not token:
         return jsonify({'error': 'Invalid token'}), 401
-    if token.used_at:
-        return jsonify({'error': 'Token already used'}), 401
 
     ip = request.remote_addr
+
+    if token.used_at:
+        # Allow re-registration from the same frame (e.g. after agent update/restart).
+        # Any other IP gets rejected so the token can't be hijacked.
+        if not token.frame_id:
+            return jsonify({'error': 'Token already used'}), 401
+        frame = Frame.query.get(token.frame_id)
+        if not frame or frame.ip != ip:
+            return jsonify({'error': 'Token already used'}), 401
+        frame.agent_url = f'http://{ip}:{port}'
+        frame.agent_last_seen = utcnow()
+        db.session.commit()
+        return jsonify({'frame_id': frame.id, 'ok': True})
     agent_url = f'http://{ip}:{port}'
 
     frame = Frame.query.filter_by(ip=ip).first()
     if not frame:
         settings = get_settings()
+        pinned = settings.default_content_mode == 'pinned'
         frame = Frame(ip=ip, name=hostname,
-                      interval_seconds=settings.default_interval_seconds)
+                      interval_seconds=settings.default_interval_seconds,
+                      rotation=settings.default_rotation,
+                      content_mode=settings.default_content_mode,
+                      pinned_type=settings.default_pinned_type if pinned else None,
+                      pinned_id=settings.default_pinned_id if pinned else None)
         db.session.add(frame)
     frame.agent_url = agent_url
     frame.agent_token = token_value
@@ -542,6 +563,21 @@ def update_settings():
         s.default_title_below = body['default_title_below'].strip() or None
     if 'default_interval_seconds' in body:
         s.default_interval_seconds = max(10, int(body['default_interval_seconds']))
+    if 'default_rotation' in body:
+        if body['default_rotation'] not in (0, 90, 180, 270):
+            return jsonify({'error': 'rotation must be 0, 90, 180, or 270'}), 400
+        s.default_rotation = body['default_rotation']
+    if 'default_content_mode' in body:
+        if body['default_content_mode'] not in ('pool', 'pinned'):
+            return jsonify({'error': 'content_mode must be pool or pinned'}), 400
+        s.default_content_mode = body['default_content_mode']
+    if 'default_pinned_type' in body:
+        v = body['default_pinned_type']
+        if v and v not in ('poster', 'trailer'):
+            return jsonify({'error': 'pinned_type must be poster or trailer'}), 400
+        s.default_pinned_type = v or None
+    if 'default_pinned_id' in body:
+        s.default_pinned_id = int(body['default_pinned_id']) if body['default_pinned_id'] else None
     db.session.commit()
     return jsonify(s.to_dict())
 
@@ -637,6 +673,11 @@ def admin_frames():
     return render_template('admin_frames.html')
 
 
+@app.route('/admin/settings')
+def admin_settings():
+    return render_template('admin_settings.html')
+
+
 @app.route('/admin/tokens')
 def admin_tokens():
     return redirect(url_for('admin_frames'))
@@ -658,8 +699,12 @@ def send_images(path):
 # Each entry is (table, column, column_definition).
 # Add a new row here whenever a column is added to a model.
 _MIGRATIONS = [
-    ('frame',    'agent_version',            'VARCHAR(12)'),
-    ('settings', 'default_interval_seconds', 'INTEGER NOT NULL DEFAULT 300'),
+    ('frame',    'agent_version',             'VARCHAR(12)'),
+    ('settings', 'default_interval_seconds',  'INTEGER NOT NULL DEFAULT 300'),
+    ('settings', 'default_rotation',          'INTEGER NOT NULL DEFAULT 0'),
+    ('settings', 'default_content_mode',      "VARCHAR(10) NOT NULL DEFAULT 'pool'"),
+    ('settings', 'default_pinned_type',        'VARCHAR(10)'),
+    ('settings', 'default_pinned_id',          'INTEGER'),
 ]
 
 

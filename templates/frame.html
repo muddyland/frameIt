@@ -35,16 +35,15 @@
         }
         #content-area {
             flex: 1;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            position: relative;
             overflow: hidden;
         }
 
         /* Poster */
         #poster-img {
-            max-height: 100%;
-            max-width: 100%;
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
             object-fit: contain;
             display: none;
         }
@@ -166,6 +165,7 @@
         var frameId = null;
         var ytPlayer = null;
         var nextTimer = null;
+        var displayOff = false;
 
         // Point admin link at the tokens page on the same origin
         document.getElementById('admin-link').href = window.location.origin + '/admin/tokens';
@@ -206,9 +206,9 @@
                 root.style.width = '100vh';
                 root.style.height = '100vw';
                 root.style.position = 'fixed';
-                root.style.top  = deg === 90 ? '0'     : '100vh';
-                root.style.left = deg === 90 ? '100vw' : '0';
-                root.style.transformOrigin = 'top left';
+                root.style.top  = '0';
+                root.style.left = '0';
+                root.style.transformOrigin = deg === 90 ? '50vw 50vw' : '50vh 50vh';
             } else {
                 root.style.transform = deg ? 'rotate(' + deg + 'deg)' : '';
                 root.style.width = '';
@@ -274,8 +274,36 @@
             if (nextTimer) { clearTimeout(nextTimer); nextTimer = null; }
         }
 
+        // ── Display-off awareness ─────────────────────────────────────
+        function pollDisplayStatus() {
+            if (!frameId) { setTimeout(pollDisplayStatus, 30000); return; }
+            fetch('/api/frames/' + frameId + '/agent/display')
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    var wasOff = displayOff;
+                    displayOff = (d.on === false);
+                    if (!wasOff && displayOff) {
+                        // Display just turned off — stop content
+                        clearTimer();
+                        if (ytPlayer) { try { ytPlayer.destroy(); } catch(e) {} ytPlayer = null; }
+                        document.getElementById('trailer-container').style.display = 'none';
+                        document.getElementById('trailer-container').innerHTML = '';
+                    } else if (wasOff && !displayOff) {
+                        // Display just turned on — resume
+                        fetchNext();
+                    }
+                    setTimeout(pollDisplayStatus, 30000);
+                })
+                .catch(function() {
+                    // Agent unreachable — assume on, resume if we were paused
+                    if (displayOff) { displayOff = false; fetchNext(); }
+                    setTimeout(pollDisplayStatus, 30000);
+                });
+        }
+
         // ── Main fetch loop ───────────────────────────────────────────
         function fetchNext() {
+            if (displayOff) return;
             fetch('/api/frames/' + frameId + '/next')
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
@@ -316,6 +344,7 @@
                 // Registered — hide the install screen if it was showing and start.
                 hideUnregistered();
                 frameId = String(data.frame_id);
+                pollDisplayStatus();
                 fetchNext();
             })
             .catch(function () {

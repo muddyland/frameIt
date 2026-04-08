@@ -3,66 +3,213 @@
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <h2 class="mb-0">Frames</h2>
-    <button class="btn btn-outline-light btn-sm" onclick="loadFrames()"><i class="fa-solid fa-rotate me-1"></i>Refresh</button>
+    <h2 class="mb-0">Dashboard</h2>
+    <div class="d-flex align-items-center gap-2">
+        <span id="last-refresh" class="text-secondary small"></span>
+        <button class="btn btn-outline-light btn-sm" onclick="loadDashboard()"><i class="fa-solid fa-rotate me-1"></i>Refresh</button>
+    </div>
 </div>
-<div id="frames-container"><div class="text-secondary">Loading...</div></div>
+
+<!-- Summary stats -->
+<div class="row g-3 mb-4">
+    <div class="col-6 col-lg-3">
+        <div class="card bg-secondary bg-opacity-10 border-secondary">
+            <div class="card-body py-3 text-center">
+                <div class="fs-3 fw-bold" id="stat-frames">—</div>
+                <div class="small text-secondary">Frames Online</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="card bg-secondary bg-opacity-10 border-secondary">
+            <div class="card-body py-3 text-center">
+                <div class="fs-3 fw-bold" id="stat-agents">—</div>
+                <div class="small text-secondary">Agents Online</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="card bg-secondary bg-opacity-10 border-secondary">
+            <div class="card-body py-3 text-center">
+                <div class="fs-3 fw-bold" id="stat-updates">—</div>
+                <div class="small text-secondary">Agent Updates</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="card bg-secondary bg-opacity-10 border-secondary">
+            <div class="card-body py-3 text-center">
+                <div class="fs-3 fw-bold" id="stat-total">—</div>
+                <div class="small text-secondary">Total Frames</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="frames-container"><div class="text-secondary">Loading…</div></div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+var serverAgentVersion = null;
+
 function timeSince(isoStr) {
     if (!isoStr) return 'Never';
     var diff = Math.floor((Date.now() - new Date(isoStr + 'Z').getTime()) / 1000);
-    if (diff < 60) return diff + 's ago';
-    if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
-    if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+    if (diff <  5)     return 'just now';
+    if (diff < 60)     return diff + 's ago';
+    if (diff < 3600)   return Math.floor(diff / 60) + 'm ago';
+    if (diff < 86400)  return Math.floor(diff / 3600) + 'h ago';
     return Math.floor(diff / 86400) + 'd ago';
 }
 
-function statusDot(online, title) {
-    var cls = online === null ? 'dot-unknown' : (online ? 'dot-online' : 'dot-offline');
-    return '<span class="status-dot ' + cls + '" title="' + title + '"></span>';
+function badge(text, cls) {
+    return '<span class="badge ' + cls + '">' + text + '</span>';
 }
 
-function loadFrames() {
-    fetch('/api/frames')
-        .then(function(r) { return r.json(); })
-        .then(function(frames) {
-            var c = document.getElementById('frames-container');
-            if (!frames.length) {
-                c.innerHTML = '<div class="text-secondary">No frames registered yet. Browse to <code>/</code> from a frame device to register it.</div>';
-                return;
-            }
-            var rows = frames.map(function(f) {
-                var now = Date.now();
-                var frameDiff = f.last_seen ? (now - new Date(f.last_seen + 'Z').getTime()) / 1000 : Infinity;
-                var agentDiff = f.agent_last_seen ? (now - new Date(f.agent_last_seen + 'Z').getTime()) / 1000 : Infinity;
-                var rowCls = frameDiff > f.interval_seconds * 2 ? 'table-danger' : '';
-                var frameOnline = frameDiff < f.interval_seconds * 2;
-                var agentOnline = f.agent_url ? agentDiff < 180 : null;
-                return '<tr class="' + rowCls + '">' +
-                    '<td>' + statusDot(frameOnline, 'Frame ' + (frameOnline ? 'online' : 'offline')) + '</td>' +
-                    '<td>' + (f.name || f.ip) + '</td>' +
-                    '<td><code class="text-secondary">' + f.ip + '</code></td>' +
-                    '<td>' + timeSince(f.last_seen) + '</td>' +
-                    '<td class="text-capitalize">' + f.content_mode + '</td>' +
-                    '<td>' + f.interval_seconds + 's</td>' +
-                    '<td>' + f.rotation + '°</td>' +
-                    '<td>' + statusDot(agentOnline, f.agent_url ? 'Agent ' + (agentOnline ? 'online' : 'offline') : 'No agent') + '</td>' +
-                    '<td><a href="/admin/frames" class="btn btn-outline-secondary btn-sm"><i class="fa-solid fa-gear me-1"></i>Configure</a></td>' +
-                    '</tr>';
-            });
-            c.innerHTML = '<div class="table-responsive"><table class="table table-dark table-hover align-middle">' +
-                '<thead><tr><th></th><th>Name</th><th>IP</th><th>Last Seen</th><th>Mode</th><th>Interval</th><th>Rotation</th><th>Agent</th><th></th></tr></thead>' +
-                '<tbody>' + rows.join('') + '</tbody></table></div>';
-        })
-        .catch(function() {
-            document.getElementById('frames-container').innerHTML = '<div class="text-danger">Failed to load frames.</div>';
-        });
+function pill(icon, text, title) {
+    return '<span class="d-inline-flex align-items-center gap-1" title="' + (title || '') + '">' +
+        '<i class="fa-solid ' + icon + ' text-secondary" style="font-size:.7rem"></i>' +
+        '<span>' + text + '</span></span>';
 }
 
-loadFrames();
-setInterval(loadFrames, 30000);
+function renderFrames(frames) {
+    var now = Date.now();
+    var framesOnline = 0, agentsOnline = 0, agentsRegistered = 0, updatesAvailable = 0;
+
+    if (!frames.length) {
+        document.getElementById('stat-frames').textContent = '0';
+        document.getElementById('stat-agents').textContent = '0';
+        document.getElementById('stat-updates').textContent = '0';
+        document.getElementById('stat-total').textContent = '0';
+        document.getElementById('frames-container').innerHTML =
+            '<div class="text-secondary">No frames registered yet. Browse to <code>/</code> from a frame device to register it.</div>';
+        return;
+    }
+
+    var cards = frames.map(function(f) {
+        var frameDiff  = f.last_seen       ? (now - new Date(f.last_seen + 'Z').getTime())       / 1000 : Infinity;
+        var agentDiff  = f.agent_last_seen ? (now - new Date(f.agent_last_seen + 'Z').getTime()) / 1000 : Infinity;
+        var frameOnline = frameDiff < f.interval_seconds * 2;
+        var hasAgent    = !!f.agent_url;
+        // Agents are considered online if they heartbeated in the last 3 minutes.
+        // The agent heartbeats every 60s, so 180s gives 3× tolerance.
+        var agentOnline = hasAgent && agentDiff < 180;
+        var hasUpdate   = hasAgent && !!f.agent_version && !!serverAgentVersion &&
+                          f.agent_version !== serverAgentVersion;
+
+        if (frameOnline) framesOnline++;
+        if (hasAgent)    agentsRegistered++;
+        if (agentOnline) agentsOnline++;
+        if (hasUpdate)   updatesAvailable++;
+
+        // ── Card border / status badge ──────────────────────────────────
+        var cardCls    = frameOnline ? 'border-secondary' : (f.last_seen ? 'border-danger border-opacity-50' : 'border-secondary');
+        var frameBadge = frameOnline
+            ? badge('Online',     'bg-success')
+            : (f.last_seen ? badge('Offline', 'bg-danger') : badge('Never Seen', 'bg-secondary'));
+
+        // ── Agent section ───────────────────────────────────────────────
+        var agentSection;
+        if (!hasAgent) {
+            agentSection = '<span class="small text-secondary fst-italic">No agent registered</span>';
+        } else {
+            var aBadge  = agentOnline ? badge('Online', 'bg-success') : badge('Offline', 'bg-danger');
+            var upBadge = hasUpdate   ? (' ' + badge('Update', 'bg-warning text-dark')) : '';
+            var hbText  = f.agent_last_seen
+                ? ('Heartbeat ' + timeSince(f.agent_last_seen))
+                : 'No heartbeat yet';
+            var verText = f.agent_version ? (' &middot; <code class="text-secondary">' + f.agent_version + '</code>') : '';
+            agentSection =
+                '<div class="d-flex align-items-center gap-1 flex-wrap">' + aBadge + upBadge + '</div>' +
+                '<div class="small text-secondary mt-1">' + hbText + verText + '</div>';
+        }
+
+        // ── Mode label ──────────────────────────────────────────────────
+        var modeLabel = f.content_mode === 'pinned' ? 'Pinned' : 'Pool';
+
+        return '<div class="col-12 col-md-6 col-xl-4">' +
+            '<div class="card h-100 bg-secondary bg-opacity-10 ' + cardCls + '">' +
+            '<div class="card-body d-flex flex-column">' +
+
+            // Header
+            '<div class="d-flex justify-content-between align-items-start mb-2">' +
+            '<div>' +
+            '<div class="fw-semibold">' + escHtml(f.name || f.ip) + '</div>' +
+            '<code style="font-size:.75rem;color:#6c757d">' + escHtml(f.ip) + '</code>' +
+            '</div>' +
+            frameBadge +
+            '</div>' +
+
+            // Meta pills
+            '<div class="d-flex flex-wrap gap-3 mb-3" style="font-size:.8rem;color:#adb5bd">' +
+            pill('fa-clock',  timeSince(f.last_seen), 'Last content fetch') +
+            pill('fa-rotate', f.rotation + '°',       'Rotation') +
+            pill('fa-film',   modeLabel,               'Content mode') +
+            pill('fa-gauge',  f.interval_seconds + 's','Interval') +
+            '</div>' +
+
+            // Agent subsection
+            '<div class="border-top border-secondary pt-2 mt-auto">' +
+            '<div class="small fw-semibold text-secondary mb-1"><i class="fa-solid fa-microchip me-1"></i>Agent</div>' +
+            agentSection +
+            '</div>' +
+
+            // Actions
+            '<div class="mt-3">' +
+            '<a href="/admin/frames" class="btn btn-outline-secondary btn-sm w-100">' +
+            '<i class="fa-solid fa-gear me-1"></i>Configure</a>' +
+            '</div>' +
+
+            '</div></div></div>';
+    });
+
+    // ── Update summary stats ────────────────────────────────────────────
+    var fEl = document.getElementById('stat-frames');
+    fEl.textContent = framesOnline === frames.length
+        ? 'All ' + frames.length
+        : framesOnline + ' / ' + frames.length;
+    fEl.className = 'fs-3 fw-bold' + (framesOnline < frames.length ? ' text-danger' : ' text-success');
+
+    var aEl = document.getElementById('stat-agents');
+    aEl.textContent = agentsRegistered === 0 ? '—'
+        : (agentsOnline === agentsRegistered ? 'All ' + agentsRegistered : agentsOnline + ' / ' + agentsRegistered);
+    aEl.className = 'fs-3 fw-bold' + (agentsRegistered > 0 && agentsOnline < agentsRegistered ? ' text-danger' : '');
+
+    var uEl = document.getElementById('stat-updates');
+    uEl.textContent = updatesAvailable === 0 ? 'Up to date' : updatesAvailable;
+    uEl.className = 'fs-3 fw-bold' + (updatesAvailable > 0 ? ' text-warning' : ' text-success');
+
+    document.getElementById('stat-total').textContent = frames.length;
+
+    document.getElementById('frames-container').innerHTML =
+        '<div class="row g-3">' + cards.join('') + '</div>';
+    document.getElementById('last-refresh').textContent =
+        'Updated ' + new Date().toLocaleTimeString();
+}
+
+function escHtml(s) {
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function loadDashboard() {
+    Promise.all([
+        fetch('/api/frames').then(function(r) { return r.json(); }),
+        fetch('/api/agent/version').then(function(r) { return r.json(); }).catch(function() { return {}; }),
+    ]).then(function(results) {
+        serverAgentVersion = results[1].version || null;
+        renderFrames(results[0]);
+    }).catch(function() {
+        document.getElementById('frames-container').innerHTML =
+            '<div class="text-danger">Failed to load frames.</div>';
+    });
+}
+
+loadDashboard();
+setInterval(loadDashboard, 30000);
 </script>
 {% endblock %}
