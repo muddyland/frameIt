@@ -66,11 +66,23 @@
 {% block scripts %}
 <script>
 var editModal = new bootstrap.Modal(document.getElementById('edit-modal'));
+var _trailers = {};
+
+function _cacheBadge(t) {
+    var s = t.cache_status;
+    if (s === 'ready')       return '<span class="badge bg-primary ms-1"><i class="fa-solid fa-circle-check me-1"></i>Cached</span>';
+    if (s === 'downloading') return '<span class="badge bg-warning text-dark ms-1"><i class="fa-solid fa-spinner fa-spin me-1"></i>Downloading</span>';
+    if (s === 'pending')     return '<span class="badge bg-secondary ms-1">Pending</span>';
+    if (s === 'error')       return '<span class="badge bg-danger ms-1">Cache Error</span>';
+    return '';
+}
 
 function loadTrailers() {
     fetch('/api/trailers')
         .then(function(r) { return r.json(); })
         .then(function(trailers) {
+            _trailers = {};
+            trailers.forEach(function(t) { _trailers[t.id] = t; });
             document.getElementById('trailer-count').textContent = trailers.length;
             var list = document.getElementById('trailer-list');
             if (!trailers.length) {
@@ -78,17 +90,21 @@ function loadTrailers() {
                 return;
             }
             list.innerHTML = '<div class="list-group">' + trailers.map(function(t) {
-                var badge = t.active
+                var activeBadge = t.active
                     ? '<span class="badge bg-success">Active</span>'
                     : '<span class="badge bg-secondary">Inactive</span>';
-                return '<div class="list-group-item bg-dark text-white border-secondary d-flex align-items-center gap-3">' +
-                    '<img src="https://img.youtube.com/vi/' + t.youtube_id + '/default.jpg" style="width:80px;height:60px;object-fit:cover;border-radius:4px" alt="">' +
+                var clearBtn = (t.cache_status === 'ready' || t.cache_status === 'error')
+                    ? '<button class="btn btn-sm btn-outline-secondary" title="Re-cache" onclick="clearCache(' + t.id + ')"><i class="fa-solid fa-rotate-right"></i></button>'
+                    : '';
+                return '<div class="list-group-item bg-dark text-white border-secondary d-flex align-items-center gap-2">' +
+                    '<img src="' + t.thumb_url + '" style="width:80px;height:60px;object-fit:cover;border-radius:4px" alt="">' +
                     '<div class="flex-fill">' +
-                    '<div class="fw-semibold">' + t.title + '</div>' +
+                    '<div class="fw-semibold">' + t.title + _cacheBadge(t) + '</div>' +
                     '<a href="https://youtu.be/' + t.youtube_id + '" target="_blank" class="text-secondary small">' + t.youtube_id + '</a>' +
                     '</div>' +
-                    badge +
-                    '<button class="btn btn-sm btn-outline-light" onclick="openEdit(' + JSON.stringify(t) + ')"><i class="fa-solid fa-pen"></i></button>' +
+                    activeBadge +
+                    clearBtn +
+                    '<button class="btn btn-sm btn-outline-light" onclick="openEdit(' + t.id + ')"><i class="fa-solid fa-pen"></i></button>' +
                     '<button class="btn btn-sm btn-outline-danger" onclick="deleteTrailer(' + t.id + ')"><i class="fa-solid fa-trash"></i></button>' +
                     '</div>';
             }).join('') + '</div>';
@@ -96,11 +112,20 @@ function loadTrailers() {
         .catch(function() { showAlert('Failed to load trailers.', 'danger'); });
 }
 
-function openEdit(t) {
+function openEdit(id) {
+    var t = _trailers[id];
+    if (!t) return;
     document.getElementById('edit-id').value = t.id;
     document.getElementById('edit-title').value = t.title;
     document.getElementById('edit-active').checked = t.active;
     editModal.show();
+}
+
+function clearCache(id) {
+    fetch('/api/trailers/' + id + '/cache', { method: 'DELETE' })
+        .then(function(r) { return r.json(); })
+        .then(function() { loadTrailers(); showAlert('Cache cleared — re-downloading.'); })
+        .catch(function() { showAlert('Failed to clear cache.', 'danger'); });
 }
 
 function saveEdit() {

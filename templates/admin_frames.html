@@ -567,7 +567,7 @@ function loadPinnedItems(selectedId) {
             _pinnedItems = items.map(function(i) {
                 return {
                     id: i.id,
-                    imgSrc: type === 'poster' ? i.url : 'https://img.youtube.com/vi/' + i.youtube_id + '/mqdefault.jpg',
+                    imgSrc: type === 'poster' ? i.url : i.thumb_url,
                     label: type === 'poster' ? (i.title_above || i.filename) : i.title,
                 };
             });

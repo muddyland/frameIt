@@ -38,6 +38,8 @@ class Trailer(db.Model):
     title = db.Column(db.String(255), nullable=False)
     active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=utcnow)
+    cache_status = db.Column(db.String(12), nullable=True)    # pending/downloading/ready/error
+    cached_filename = db.Column(db.String(24), nullable=True) # '{youtube_id}.mp4' when ready
 
     def to_dict(self):
         return {
@@ -46,6 +48,11 @@ class Trailer(db.Model):
             'title': self.title,
             'active': self.active,
             'created_at': self.created_at.isoformat(),
+            'cache_status': self.cache_status,
+            'cached_url': f'/videos/{self.cached_filename}' if self.cached_filename else None,
+            'thumb_url': (f'/videos/{self.youtube_id}.jpg'
+                          if self.cache_status == 'ready'
+                          else f'https://img.youtube.com/vi/{self.youtube_id}/mqdefault.jpg'),
         }
 
 

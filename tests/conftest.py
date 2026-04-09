@@ -14,8 +14,10 @@ import pytest
 # ── Point the app at throwaway directories before importing ────────────────
 _tmp_data   = tempfile.mkdtemp(prefix='frameit_test_data_')
 _tmp_images = tempfile.mkdtemp(prefix='frameit_test_images_')
+_tmp_videos = tempfile.mkdtemp(prefix='frameit_test_videos_')
 os.environ['DATA_DIR']   = _tmp_data
 os.environ['IMAGES_DIR'] = _tmp_images
+os.environ['VIDEOS_DIR'] = _tmp_videos
 
 from main import app as flask_app   # noqa: E402  (import after env setup)
 from models import db               # noqa: E402

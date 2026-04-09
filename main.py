@@ -1,10 +1,26 @@
 import hashlib
+import logging
 import os
+import queue
 import re
+import threading
 import uuid
 import random
 import secrets
 import subprocess
+
+_log = logging.getLogger(__name__)
+
+try:
+    import yt_dlp as _yt_dlp
+    _YT_DLP_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    _YT_DLP_AVAILABLE = False
+
+# If ffmpeg is present we can merge separate video+audio streams for 720p quality.
+# Without it we fall back to the best pre-merged stream (usually ≤480p).
+import shutil as _shutil
+_FFMPEG_AVAILABLE = _shutil.which('ffmpeg') is not None
 
 import requests as http_requests
 from flask import (Flask, render_template, request, jsonify, send_from_directory,
@@ -17,9 +33,11 @@ from models import db, Poster, Trailer, Frame, FrameLog, RegistrationToken, Sett
 STATIC_DIR = './static'
 DATA_DIR = os.environ.get("DATA_DIR", './config')
 IMAGES_DIR = os.environ.get("IMAGES_DIR", './images')
+VIDEOS_DIR = os.environ.get("VIDEOS_DIR", './videos')
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(IMAGES_DIR, exist_ok=True)
+os.makedirs(VIDEOS_DIR, exist_ok=True)
 os.makedirs(os.path.join(STATIC_DIR, 'dist'), exist_ok=True)
 
 app = Flask(__name__, static_url_path='/static', static_folder=STATIC_DIR)
@@ -48,7 +66,7 @@ _PUBLIC_ENDPOINTS = {
     'frame', 'manifest', 'frame_checkin', 'frame_next', 'frame_signal',
     'agent_register', 'agent_heartbeat', 'agent_server_version', 'install_script',
     'serve_agent', 'serve_agent_requirements', 'send_images',
-    'admin_login', 'admin_logout', 'admin_setup', 'static',
+    'admin_login', 'admin_logout', 'admin_setup', 'static', 'serve_video',
 }
 
 
@@ -94,6 +112,103 @@ def get_settings():
         db.session.add(s)
         db.session.commit()
     return s
+
+
+# ---------------------------------------------------------------------------
+# Video cache — background download worker
+# ---------------------------------------------------------------------------
+
+_dl_queue: queue.Queue = queue.Queue()
+_dl_queued: set = set()   # youtube_ids currently in queue or being downloaded
+_dl_lock = threading.Lock()
+
+
+def _enqueue_download(youtube_id: str) -> None:
+    """Add youtube_id to the download queue; no-op if already queued/downloading."""
+    if not _YT_DLP_AVAILABLE:
+        return
+    with _dl_lock:
+        if youtube_id in _dl_queued:
+            return
+        _dl_queued.add(youtube_id)
+    _dl_queue.put(youtube_id)
+
+
+def _do_download(youtube_id: str) -> None:
+    """Download a YouTube video at ≤720p mp4 and update the DB cache status."""
+    out_path = os.path.join(VIDEOS_DIR, f'{youtube_id}.mp4')
+
+    with app.app_context():
+        trailer = Trailer.query.filter_by(youtube_id=youtube_id).first()
+        if not trailer:
+            return
+        trailer.cache_status = 'downloading'
+        db.session.commit()
+
+    try:
+        os.makedirs(VIDEOS_DIR, exist_ok=True)
+        if _FFMPEG_AVAILABLE:
+            ydl_fmt = (
+                'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]'
+                '/bestvideo[height<=720]+bestaudio'
+                '/best[height<=720]'
+            )
+        else:
+            # No ffmpeg — select only pre-merged streams (typically ≤480p on YouTube)
+            ydl_fmt = 'best[height<=720]/best'
+        ydl_opts = {
+            'format': ydl_fmt,
+            'outtmpl': out_path,
+            'merge_output_format': 'mp4' if _FFMPEG_AVAILABLE else None,
+            'quiet': True,
+            'no_warnings': True,
+        }
+        if not _FFMPEG_AVAILABLE:
+            ydl_opts.pop('merge_output_format')
+        with _yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([f'https://www.youtube.com/watch?v={youtube_id}'])
+
+        # Fetch thumbnail
+        thumb_path = os.path.join(VIDEOS_DIR, f'{youtube_id}.jpg')
+        try:
+            r = http_requests.get(
+                f'https://img.youtube.com/vi/{youtube_id}/mqdefault.jpg',
+                timeout=10,
+            )
+            if r.status_code == 200:
+                with open(thumb_path, 'wb') as _f:
+                    _f.write(r.content)
+        except Exception:  # pylint: disable=broad-except
+            pass
+
+        with app.app_context():
+            trailer = Trailer.query.filter_by(youtube_id=youtube_id).first()
+            if trailer:
+                trailer.cache_status = 'ready'
+                trailer.cached_filename = f'{youtube_id}.mp4'
+                db.session.commit()
+    except Exception as exc:  # pylint: disable=broad-except
+        _log.error('[video-cache] Download failed for %s: %s', youtube_id, exc)
+        if os.path.exists(out_path):
+            os.remove(out_path)
+        with app.app_context():
+            trailer = Trailer.query.filter_by(youtube_id=youtube_id).first()
+            if trailer:
+                trailer.cache_status = 'error'
+                db.session.commit()
+
+
+def _download_worker() -> None:
+    while True:
+        youtube_id = _dl_queue.get()
+        try:
+            _do_download(youtube_id)
+        except Exception as exc:  # pylint: disable=broad-except
+            _log.error('[video-cache] Unhandled error for %s: %s', youtube_id, exc)
+        finally:
+            with _dl_lock:
+                _dl_queued.discard(youtube_id)
+            _dl_queue.task_done()
 
 
 # ---------------------------------------------------------------------------
@@ -210,8 +325,13 @@ def frame_next(frame_id):
                         'url': f'/images/{item.filename}',
                         'title_above': title_above or '',
                         'title_below': title_below or ''})
+    cached_url = (f'/videos/{item.cached_filename}'
+                  if item.cache_status == 'ready' and item.cached_filename else None)
+    if not cached_url and item.cache_status not in ('pending', 'downloading', 'error'):
+        _enqueue_download(item.youtube_id)
     return jsonify({**base, 'type': 'trailer', 'id': item.id,
-                    'youtube_id': item.youtube_id, 'title': item.title})
+                    'youtube_id': item.youtube_id, 'title': item.title,
+                    'cached_url': cached_url})
 
 
 # ---------------------------------------------------------------------------
@@ -310,6 +430,11 @@ def get_trailers():
     return jsonify([t.to_dict() for t in trailers])
 
 
+@app.route('/videos/<path:filename>')
+def serve_video(filename):
+    return send_from_directory(VIDEOS_DIR, filename)
+
+
 @app.route('/api/trailers', methods=['POST'])
 def add_trailer():
     body = request.get_json(silent=True) or {}
@@ -329,6 +454,7 @@ def add_trailer():
     trailer = Trailer(youtube_id=youtube_id, title=title)
     db.session.add(trailer)
     db.session.commit()
+    _enqueue_download(youtube_id)
     return jsonify(trailer.to_dict()), 201
 
 
@@ -347,9 +473,31 @@ def update_trailer(trailer_id):
 @app.route('/api/trailers/<int:trailer_id>', methods=['DELETE'])
 def delete_trailer(trailer_id):
     trailer = Trailer.query.get_or_404(trailer_id)
+    _remove_cached_files(trailer.youtube_id)
     db.session.delete(trailer)
     db.session.commit()
     return '', 204
+
+
+@app.route('/api/trailers/<int:trailer_id>/cache', methods=['DELETE'])
+def clear_trailer_cache(trailer_id):
+    """Remove the cached video and thumbnail, reset status, re-enqueue download."""
+    trailer = Trailer.query.get_or_404(trailer_id)
+    _remove_cached_files(trailer.youtube_id)
+    trailer.cache_status = None
+    trailer.cached_filename = None
+    db.session.commit()
+    _enqueue_download(trailer.youtube_id)
+    return jsonify(trailer.to_dict())
+
+
+def _remove_cached_files(youtube_id: str) -> None:
+    """Remove the cached mp4 and thumbnail for a given youtube_id."""
+    for name in (f'{youtube_id}.mp4', f'{youtube_id}.jpg'):
+        try:
+            os.remove(os.path.join(VIDEOS_DIR, name))
+        except FileNotFoundError:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -378,7 +526,7 @@ def get_frames():
             else:
                 trailer = db.session.get(Trailer, log.content_id)
                 if trailer:
-                    preview['thumb_url'] = f'https://img.youtube.com/vi/{trailer.youtube_id}/mqdefault.jpg'
+                    preview['thumb_url'] = trailer.to_dict()['thumb_url']
                     preview['title'] = trailer.title
                 else:
                     preview = None
@@ -785,6 +933,8 @@ _MIGRATIONS = [
     ('settings', 'default_pinned_type',        'VARCHAR(10)'),
     ('settings', 'default_pinned_id',          'INTEGER'),
     ('frame',    'pending_command',             'VARCHAR(20)'),
+    ('trailer',  'cache_status',               'VARCHAR(12)'),
+    ('trailer',  'cached_filename',            'VARCHAR(24)'),
 ]
 
 
@@ -811,6 +961,7 @@ with app.app_context():
     db.create_all()
     migrate_schema()
 
+threading.Thread(target=_download_worker, daemon=True, name='video-cache-worker').start()
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0')
