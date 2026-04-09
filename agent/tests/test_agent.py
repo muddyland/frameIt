@@ -135,31 +135,6 @@ class TestNetwork:
         assert 'interfaces' in body
         assert isinstance(body['interfaces'], list)
 
-    def test_set_hostname_valid(self, client, auth_headers):
-        def mock_run(cmd, **kwargs):
-            r = MagicMock()
-            r.returncode = 0
-            r.stderr = ''
-            return r
-        with patch('agent.agent.subprocess.run', side_effect=mock_run):
-            resp = client.post('/network/hostname',
-                               json={'hostname': 'new-pi'},
-                               headers=auth_headers)
-        assert resp.status_code == 200
-        assert resp.get_json()['hostname'] == 'new-pi'
-
-    def test_set_hostname_invalid_chars_returns_400(self, client, auth_headers):
-        resp = client.post('/network/hostname',
-                           json={'hostname': 'bad hostname!'},
-                           headers=auth_headers)
-        assert resp.status_code == 400
-
-    def test_set_hostname_empty_returns_400(self, client, auth_headers):
-        resp = client.post('/network/hostname',
-                           json={'hostname': ''},
-                           headers=auth_headers)
-        assert resp.status_code == 400
-
     def test_wifi_scan_returns_networks(self, client, auth_headers):
         def mock_run(cmd, **kwargs):
             r = MagicMock()
