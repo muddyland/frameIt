@@ -2,25 +2,13 @@ import hashlib
 import logging
 import os
 import queue
+import random
 import re
+import secrets
+import shutil
+import subprocess
 import threading
 import uuid
-import random
-import secrets
-import subprocess
-
-_log = logging.getLogger(__name__)
-
-try:
-    import yt_dlp as _yt_dlp
-    _YT_DLP_AVAILABLE = True
-except ImportError:  # pragma: no cover
-    _YT_DLP_AVAILABLE = False
-
-# If ffmpeg is present we can merge separate video+audio streams for 720p quality.
-# Without it we fall back to the best pre-merged stream (usually ≤480p).
-import shutil as _shutil
-_FFMPEG_AVAILABLE = _shutil.which('ffmpeg') is not None
 
 import requests as http_requests
 from flask import (Flask, render_template, request, jsonify, send_from_directory,
@@ -29,6 +17,18 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from models import db, Poster, Trailer, Frame, FrameLog, RegistrationToken, Settings, AdminUser, utcnow
+
+try:
+    import yt_dlp as _yt_dlp
+    _YT_DLP_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    _YT_DLP_AVAILABLE = False
+
+_log = logging.getLogger(__name__)
+
+# If ffmpeg is present we can merge separate video+audio streams for 720p quality.
+# Without it we fall back to the best pre-merged stream (usually ≤480p).
+_FFMPEG_AVAILABLE = shutil.which('ffmpeg') is not None
 
 STATIC_DIR = './static'
 DATA_DIR = os.environ.get("DATA_DIR", './config')
