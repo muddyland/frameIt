@@ -1,6 +1,7 @@
 # ── Project-specific ──────────────────────────────────────────────────────────
 .venv/
 images/*
+videos/*
 config/*
 secrets.env
 static/dist/
