@@ -12,6 +12,8 @@ import threading
 import uuid
 from datetime import timedelta
 
+from sqlalchemy.exc import OperationalError as SAOperationalError
+
 import requests as http_requests
 from flask import (Flask, render_template, request, jsonify, send_from_directory,
                    Response, stream_with_context, session, redirect, url_for)
@@ -1120,10 +1122,15 @@ def migrate_schema():
             rows = conn.execute(db.text(f'PRAGMA table_info("{table}")')).fetchall()
             existing = {r[1] for r in rows}
             if column not in existing:
-                conn.execute(db.text(f'ALTER TABLE "{table}" ADD COLUMN {column} {definition}'))
-                conn.commit()
-                added.add((table, column))
-                print(f'[db] Added column {table}.{column}')
+                try:
+                    conn.execute(db.text(f'ALTER TABLE "{table}" ADD COLUMN {column} {definition}'))
+                    conn.commit()
+                    added.add((table, column))
+                    print(f'[db] Added column {table}.{column}')
+                except SAOperationalError as exc:
+                    if 'duplicate column name' not in str(exc).lower():
+                        raise
+                    conn.rollback()  # another worker won the race — column already exists
 
         # Seed banner text options the first time these columns are added to an
         # existing DB — so current users get the defaults without needing a
