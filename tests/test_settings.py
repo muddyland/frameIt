@@ -57,9 +57,12 @@ class TestDefaultTextResolution:
         data = {'file': (io.BytesIO(b'FAKE'), 'bare.jpg')}
         client.post('/api/posters/upload', data=data, content_type='multipart/form-data')
 
-        client.patch('/api/settings', json={'default_title_above': 'Default Above',
-                                            'default_title_below': 'Default Below'},
-                     content_type='application/json')
+        client.patch('/api/settings', json={
+            'default_title_above': 'Default Above',
+            'default_title_above_options': '',
+            'default_title_below': 'Default Below',
+            'default_title_below_options': '',
+        }, content_type='application/json')
 
         frame_id = checkin(client)['frame_id']
         resp = client.get(f'/api/frames/{frame_id}/next').get_json()
@@ -95,8 +98,10 @@ class TestDefaultTextResolution:
         data = {'file': (io.BytesIO(b'FAKE'), 'bare2.jpg')}
         client.post('/api/posters/upload', data=data, content_type='multipart/form-data')
 
-        client.patch('/api/settings', json={'default_title_above': 'First Default'},
-                     content_type='application/json')
+        client.patch('/api/settings', json={
+            'default_title_above': 'First Default',
+            'default_title_above_options': '',
+        }, content_type='application/json')
         frame_id = checkin(client)['frame_id']
         first = client.get(f'/api/frames/{frame_id}/next').get_json()
         assert first['title_above'] == 'First Default'

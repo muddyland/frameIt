@@ -10,8 +10,8 @@
     </div>
 </div>
 
-<!-- Summary stats -->
-<div class="row g-3 mb-4">
+<!-- Summary stats row 1: frame / agent health -->
+<div class="row g-3 mb-3">
     <div class="col-6 col-lg-3">
         <div class="card bg-secondary bg-opacity-10 border-secondary">
             <div class="card-body py-3 text-center">
@@ -46,12 +46,58 @@
     </div>
 </div>
 
+<!-- Summary stats row 2: content library -->
+<div class="row g-3 mb-4">
+    <div class="col-6 col-lg-4">
+        <div class="card bg-secondary bg-opacity-10 border-secondary">
+            <div class="card-body py-3 text-center">
+                <div class="fs-3 fw-bold" id="stat-content">—</div>
+                <div class="small text-secondary" id="stat-content-sub">Content Pool</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-4">
+        <div class="card bg-secondary bg-opacity-10 border-secondary">
+            <div class="card-body py-3 text-center">
+                <div class="fs-3 fw-bold" id="stat-trailers">—</div>
+                <div class="small text-secondary">Trailers Cached</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-4">
+        <div class="card bg-secondary bg-opacity-10 border-secondary">
+            <div class="card-body py-3 text-center">
+                <div class="fs-3 fw-bold" id="stat-tokens">—</div>
+                <div class="small text-secondary">Open Tokens</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Health alerts (hidden until agent stats reveal issues) -->
+<div id="health-alerts" class="mb-4" style="display:none">
+    <div class="alert alert-warning mb-0 py-2 px-3">
+        <div class="d-flex align-items-center gap-2 mb-1">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            <strong>Frame Health Warnings</strong>
+        </div>
+        <ul id="health-alerts-list" class="mb-0 ps-3 small"></ul>
+    </div>
+</div>
+
 <div id="frames-container"><div class="text-secondary">Loading…</div></div>
+
+<!-- Recent activity feed -->
+<div class="mt-4">
+    <div class="small fw-semibold text-secondary mb-3" style="letter-spacing:.06em;text-transform:uppercase">Recent Activity</div>
+    <div id="activity-container"><div class="text-secondary small">Loading…</div></div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 var serverAgentVersion = null;
+var healthIssues = {};
 
 function timeSince(isoStr) {
     if (!isoStr) return 'Never';
@@ -71,6 +117,49 @@ function pill(icon, text, title) {
     return '<span class="d-inline-flex align-items-center gap-1" title="' + (title || '') + '">' +
         '<i class="fa-solid ' + icon + ' text-secondary" style="font-size:.7rem"></i>' +
         '<span>' + text + '</span></span>';
+}
+
+function escHtml(s) {
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function skipContent(frameId) {
+    var btn = document.getElementById('skip-btn-' + frameId);
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i>…'; }
+    fetch('/api/frames/' + frameId + '/command', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({command: 'next'}),
+    })
+    .then(function() {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-forward-step me-1"></i>Skip'; }
+    })
+    .catch(function() {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-forward-step me-1"></i>Skip'; }
+    });
+}
+
+function updateHealthAlerts(frameId, frameName, issues) {
+    if (issues.length) {
+        healthIssues[frameId] = {name: frameName, issues: issues};
+    } else {
+        delete healthIssues[frameId];
+    }
+    var keys = Object.keys(healthIssues);
+    var alertEl = document.getElementById('health-alerts');
+    var listEl  = document.getElementById('health-alerts-list');
+    if (!keys.length) { alertEl.style.display = 'none'; return; }
+    alertEl.style.display = '';
+    listEl.innerHTML = keys.map(function(k) {
+        var h = healthIssues[k];
+        return h.issues.map(function(msg) {
+            return '<li><strong>' + escHtml(h.name) + '</strong>: ' + escHtml(msg) + '</li>';
+        }).join('');
+    }).join('');
 }
 
 function renderFrames(frames) {
@@ -181,8 +270,10 @@ function renderFrames(frames) {
             '</div>' +
 
             // Actions
-            '<div class="mt-3">' +
-            '<a href="/admin/frames" class="btn btn-outline-secondary btn-sm w-100">' +
+            '<div class="mt-3 d-flex gap-2">' +
+            '<button id="skip-btn-' + f.id + '" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="skipContent(' + f.id + ')">' +
+            '<i class="fa-solid fa-forward-step me-1"></i>Skip</button>' +
+            '<a href="/admin/frames" class="btn btn-outline-secondary btn-sm flex-grow-1">' +
             '<i class="fa-solid fa-gear me-1"></i>Configure</a>' +
             '</div>' +
 
@@ -214,21 +305,90 @@ function renderFrames(frames) {
     loadQuickStats(frames);
 }
 
-function escHtml(s) {
-    return String(s)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
+function renderSummary(data) {
+    var postersActive  = data.posters_active  || 0;
+    var trailersActive = data.trailers_active || 0;
+    var trailersTotal  = data.trailers_total  || 0;
+    var trailersReady  = data.trailers_ready  || 0;
+    var trailersError  = data.trailers_error  || 0;
+    var tokensUnused   = data.tokens_unused   || 0;
+
+    // Content pool
+    var cEl = document.getElementById('stat-content');
+    cEl.textContent  = postersActive + trailersActive;
+    cEl.className    = 'fs-3 fw-bold';
+    document.getElementById('stat-content-sub').textContent =
+        postersActive  + ' poster'  + (postersActive  !== 1 ? 's' : '') + ' · ' +
+        trailersActive + ' trailer' + (trailersActive !== 1 ? 's' : '');
+
+    // Trailers cached
+    var tEl = document.getElementById('stat-trailers');
+    if (trailersTotal === 0) {
+        tEl.textContent = '—';
+        tEl.className   = 'fs-3 fw-bold';
+    } else if (trailersReady === trailersTotal) {
+        tEl.textContent = 'All ' + trailersTotal;
+        tEl.className   = 'fs-3 fw-bold text-success';
+    } else {
+        tEl.textContent = trailersReady + ' / ' + trailersTotal;
+        tEl.className   = 'fs-3 fw-bold' + (trailersError > 0 ? ' text-danger' : ' text-warning');
+    }
+
+    // Open tokens
+    var tokEl = document.getElementById('stat-tokens');
+    tokEl.textContent = tokensUnused > 0 ? tokensUnused : '0';
+    tokEl.className   = 'fs-3 fw-bold' + (tokensUnused === 0 ? ' text-secondary' : '');
+}
+
+function renderActivity(items) {
+    var container = document.getElementById('activity-container');
+    if (!items || !items.length) {
+        container.innerHTML = '<div class="text-secondary small fst-italic">No activity yet.</div>';
+        return;
+    }
+    var rows = items.map(function(item) {
+        var thumb = item.thumb_url
+            ? '<img src="' + escHtml(item.thumb_url) + '" loading="lazy" style="width:40px;height:28px;object-fit:cover;border-radius:3px">'
+            : '<div style="width:40px;height:28px;background:#333;border-radius:3px"></div>';
+        var typeBadge = item.content_type === 'poster'
+            ? '<span class="badge bg-secondary" style="font-size:.65rem">Poster</span>'
+            : '<span class="badge bg-primary"   style="font-size:.65rem">Trailer</span>';
+        return '<tr>' +
+            '<td class="py-2 pe-3">' + thumb + '</td>' +
+            '<td class="py-2 pe-3 text-truncate" style="max-width:200px">' + escHtml(item.title || '—') + '</td>' +
+            '<td class="py-2 pe-3">' + typeBadge + '</td>' +
+            '<td class="py-2 pe-3 text-secondary small text-nowrap">' + escHtml(item.frame_name) + '</td>' +
+            '<td class="py-2 text-secondary small text-nowrap">' + timeSince(item.shown_at) + '</td>' +
+            '</tr>';
+    });
+    container.innerHTML =
+        '<div class="card bg-secondary bg-opacity-10 border-secondary">' +
+        '<div class="table-responsive">' +
+        '<table class="table table-dark table-sm mb-0" style="font-size:.85rem">' +
+        '<thead><tr class="border-secondary">' +
+        '<th class="py-2 border-secondary" style="width:50px"></th>' +
+        '<th class="py-2 border-secondary">Title</th>' +
+        '<th class="py-2 border-secondary">Type</th>' +
+        '<th class="py-2 border-secondary">Frame</th>' +
+        '<th class="py-2 border-secondary">When</th>' +
+        '</tr></thead>' +
+        '<tbody>' + rows.join('') + '</tbody>' +
+        '</table></div></div>';
 }
 
 function loadQuickStats(frames) {
+    // Clear stale health state at the start of each reload cycle
+    healthIssues = {};
+    document.getElementById('health-alerts').style.display = 'none';
+
     frames.forEach(function(f) {
         if (!f.agent_url) return;
         var agentDiff = f.agent_last_seen
             ? (Date.now() - new Date(f.agent_last_seen + 'Z').getTime()) / 1000
             : Infinity;
         if (agentDiff >= 180) return;
+
+        var frameName = f.name || f.ip;
 
         fetch('/api/frames/' + f.id + '/agent/display')
             .then(function(r) { return r.json(); })
@@ -248,14 +408,33 @@ function loadQuickStats(frames) {
             .then(function(d) {
                 var el = document.getElementById('sysstat-' + f.id);
                 if (!el) return;
-                var parts = [];
-                if (d.cpu_percent  != null) parts.push('<i class="fa-solid fa-microchip me-1"></i>'        + d.cpu_percent  + '%');
-                if (d.ram_percent  != null) parts.push('<i class="fa-solid fa-memory me-1"></i>'           + d.ram_percent  + '%');
-                if (d.disk_percent != null) parts.push('<i class="fa-solid fa-hard-drive me-1"></i>'       + d.disk_percent + '%');
-                if (d.cpu_temp)             parts.push('<i class="fa-solid fa-temperature-half me-1"></i>' + d.cpu_temp     + '°C');
+                var parts  = [];
+                var issues = [];
+
+                if (d.cpu_percent  != null) parts.push('<i class="fa-solid fa-microchip me-1"></i>' + d.cpu_percent + '%');
+                if (d.ram_percent  != null) {
+                    parts.push('<i class="fa-solid fa-memory me-1"></i>' + d.ram_percent + '%');
+                    if (d.ram_percent >= 90) issues.push('RAM ' + d.ram_percent + '%');
+                }
+                if (d.disk_percent != null) {
+                    var diskWarn = d.disk_percent >= 80;
+                    parts.push((diskWarn ? '<span class="text-warning">' : '') +
+                        '<i class="fa-solid fa-hard-drive me-1"></i>' + d.disk_percent + '%' +
+                        (diskWarn ? '</span>' : ''));
+                    if (diskWarn) issues.push('Disk ' + d.disk_percent + '%');
+                }
+                if (d.cpu_temp != null) {
+                    var tempWarn = d.cpu_temp >= 70;
+                    parts.push((tempWarn ? '<span class="text-warning">' : '') +
+                        '<i class="fa-solid fa-temperature-half me-1"></i>' + d.cpu_temp + '°C' +
+                        (tempWarn ? '</span>' : ''));
+                    if (tempWarn) issues.push('CPU temp ' + d.cpu_temp + '°C');
+                }
+
                 if (!parts.length) return;
                 el.innerHTML = parts.join('<span class="mx-1 opacity-50">·</span>');
                 el.style.display = '';
+                updateHealthAlerts(f.id, frameName, issues);
             })
             .catch(function() {});
     });
@@ -265,9 +444,12 @@ function loadDashboard() {
     Promise.all([
         fetch('/api/frames').then(function(r) { return r.json(); }),
         fetch('/api/agent/version').then(function(r) { return r.json(); }).catch(function() { return {}; }),
+        fetch('/api/dashboard/summary').then(function(r) { return r.json(); }).catch(function() { return {}; }),
     ]).then(function(results) {
         serverAgentVersion = results[1].version || null;
         renderFrames(results[0]);
+        renderSummary(results[2]);
+        renderActivity(results[2].activity);
     }).catch(function() {
         document.getElementById('frames-container').innerHTML =
             '<div class="text-danger">Failed to load frames.</div>';
@@ -275,6 +457,9 @@ function loadDashboard() {
 }
 
 loadDashboard();
-setInterval(loadDashboard, 30000);
+fetch('/api/settings')
+    .then(function(r) { return r.json(); })
+    .then(function(d) { setInterval(loadDashboard, (d.dashboard_refresh_seconds || 30) * 1000); })
+    .catch(function() { setInterval(loadDashboard, 30000); });
 </script>
 {% endblock %}

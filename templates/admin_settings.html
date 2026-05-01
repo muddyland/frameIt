@@ -6,8 +6,6 @@
     <h2 class="mb-0 text-white">Settings</h2>
 </div>
 
-<div id="settings-alerts"></div>
-
 <div class="row g-4">
 
     <!-- New frame defaults -->
@@ -62,30 +60,125 @@
         </div>
     </div>
 
-    <!-- Poster text defaults -->
+    <!-- Poster text options -->
     <div class="col-12 col-lg-6">
         <div class="card bg-secondary bg-opacity-10 border-secondary h-100">
             <div class="card-header border-secondary">
                 <h6 class="mb-0 text-white"><i class="fa-solid fa-image me-2 text-secondary"></i>Default Poster Text</h6>
-                <div class="small text-secondary mt-1">Used when a poster has no per-poster text set.</div>
+                <div class="small text-secondary mt-1">Used when a poster has no per-poster text set. Enter one option per line — multiple lines are cycled randomly.</div>
             </div>
             <div class="card-body">
                 <div class="mb-3">
-                    <label class="form-label">Text Above Poster</label>
-                    <input type="text" class="form-control bg-dark text-white border-secondary"
-                           id="s-title-above" placeholder="e.g. Now Playing" maxlength="255">
+                    <label class="form-label">Text Above Poster <span class="text-secondary fw-normal">(one per line)</span></label>
+                    <textarea class="form-control bg-dark text-white border-secondary font-monospace"
+                              id="s-title-above-options" rows="7"
+                              placeholder="Now Playing&#10;Coming Soon&#10;Now in Theaters&#10;Get Your Tickets&#10;Feature Presentation&#10;Now Showing"></textarea>
                     <div class="form-text">Shown in the banner above the image. Leave blank to hide.</div>
                 </div>
                 <div class="mb-0">
-                    <label class="form-label">Text Below Poster</label>
-                    <input type="text" class="form-control bg-dark text-white border-secondary"
-                           id="s-title-below" placeholder="e.g. Cinema Classics" maxlength="255">
+                    <label class="form-label">Text Below Poster <span class="text-secondary fw-normal">(one per line)</span></label>
+                    <textarea class="form-control bg-dark text-white border-secondary font-monospace"
+                              id="s-title-below-options" rows="4"
+                              placeholder="e.g. Cinema Classics"></textarea>
                     <div class="form-text">Shown in the banner below the image. Leave blank to hide.</div>
                 </div>
             </div>
         </div>
     </div>
 
+    <!-- Content pool behaviour -->
+    <div class="col-12 col-lg-6">
+        <div class="card bg-secondary bg-opacity-10 border-secondary h-100">
+            <div class="card-header border-secondary">
+                <h6 class="mb-0 text-white"><i class="fa-solid fa-shuffle me-2 text-secondary"></i>Content Pool Behaviour</h6>
+                <div class="small text-secondary mt-1">Controls how content is selected in Pool mode.</div>
+            </div>
+            <div class="card-body">
+                <div class="mb-4">
+                    <label class="form-label">Pool Order</label>
+                    <div class="d-flex flex-column gap-2">
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="pool-order" id="s-pool-random" value="random">
+                            <label class="form-check-label" for="s-pool-random">
+                                <strong>Random</strong>
+                                <div class="small text-secondary">Pick a random item each cycle (default).</div>
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="pool-order" id="s-pool-sequential" value="sequential">
+                            <label class="form-check-label" for="s-pool-sequential">
+                                <strong>Sequential</strong>
+                                <div class="small text-secondary">Cycle through all items in order (posters first, then trailers), then repeat.</div>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-0">
+                    <label class="form-label">Trailer Mix</label>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="s-weight-custom" onchange="onWeightToggle()">
+                        <label class="form-check-label" for="s-weight-custom">Custom trailer frequency</label>
+                    </div>
+                    <div id="s-weight-section" style="display:none">
+                        <div class="input-group">
+                            <input type="number" class="form-control bg-dark text-white border-secondary"
+                                   id="s-trailer-weight" min="0" max="100" step="5" value="30">
+                            <span class="input-group-text bg-dark text-secondary border-secondary">% trailers</span>
+                        </div>
+                        <div class="form-text">0 = never show trailers · 100 = only trailers · 30 = ~1 in 3 items is a trailer regardless of library size.</div>
+                    </div>
+                    <div id="s-weight-auto-text" class="form-text">Trailers appear proportionally to their count in the library.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- System -->
+    <div class="col-12 col-lg-6">
+        <div class="card bg-secondary bg-opacity-10 border-secondary h-100">
+            <div class="card-header border-secondary">
+                <h6 class="mb-0 text-white"><i class="fa-solid fa-sliders me-2 text-secondary"></i>System</h6>
+                <div class="small text-secondary mt-1">Dashboard and maintenance settings.</div>
+            </div>
+            <div class="card-body">
+                <div class="mb-4">
+                    <label class="form-label">Dashboard Auto-refresh</label>
+                    <div class="input-group">
+                        <input type="number" class="form-control bg-dark text-white border-secondary"
+                               id="s-refresh" min="5" step="5">
+                        <span class="input-group-text bg-dark text-secondary border-secondary">seconds</span>
+                    </div>
+                    <div class="form-text">How often the admin dashboard reloads frame status.</div>
+                </div>
+                <div class="mb-0">
+                    <label class="form-label">Activity Log Retention</label>
+                    <div class="input-group">
+                        <input type="number" class="form-control bg-dark text-white border-secondary"
+                               id="s-retention" min="1" step="1" placeholder="∞">
+                        <span class="input-group-text bg-dark text-secondary border-secondary">days</span>
+                    </div>
+                    <div class="form-text">How long to keep the frame activity log. Leave blank to keep forever.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- Apply defaults to all frames -->
+<div class="mt-4">
+    <div class="card bg-secondary bg-opacity-10 border-secondary">
+        <div class="card-body d-flex flex-column flex-sm-row align-items-sm-center justify-content-sm-between gap-3">
+            <div>
+                <div class="fw-semibold"><i class="fa-solid fa-arrow-right-to-bracket me-2 text-secondary"></i>Apply Defaults to All Frames</div>
+                <div class="small text-secondary mt-1">Push the current interval, rotation, and content mode to every registered frame. Does not affect per-frame pinned content that differs from the defaults.</div>
+            </div>
+            <button class="btn btn-outline-warning btn-sm text-nowrap flex-shrink-0" onclick="applyDefaults()">
+                <i class="fa-solid fa-arrow-rotate-right me-1"></i>Apply to All Frames
+            </button>
+        </div>
+    </div>
 </div>
 
 <div class="mt-4 d-flex flex-wrap gap-2">
@@ -100,24 +193,6 @@
 
 {% block scripts %}
 <script>
-function showSettingsAlert(msg, type) {
-    showModalAlert(msg, type || 'success', 'settings-alerts');
-}
-
-// Override alertId default so showModalAlert targets the right div
-function showModalAlert(msg, type, alertId) {
-    type    = type    || 'success';
-    alertId = alertId || 'alerts';
-    var el = document.getElementById(alertId);
-    if (!el) return;
-    var id = 'salert-' + Date.now();
-    el.innerHTML = '';
-    el.insertAdjacentHTML('beforeend',
-        '<div id="' + id + '" class="alert alert-' + type + ' alert-dismissible fade show py-2" role="alert">' +
-        msg + '<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>');
-    setTimeout(function () { var a = document.getElementById(id); if (a) a.remove(); }, 4000);
-}
-
 var _posters = [], _trailers = [];
 
 function onModeChange() {
@@ -127,6 +202,12 @@ function onModeChange() {
 
 function onPinnedTypeChange() {
     populatePinnedItems(document.getElementById('s-pinned-type').value, null);
+}
+
+function onWeightToggle() {
+    var custom = document.getElementById('s-weight-custom').checked;
+    document.getElementById('s-weight-section').style.display   = custom ? '' : 'none';
+    document.getElementById('s-weight-auto-text').style.display = custom ? 'none' : '';
 }
 
 function populatePinnedItems(type, selectedId) {
@@ -155,11 +236,27 @@ function loadSettings() {
         fetch('/api/settings')
             .then(function(r) { return r.json(); })
             .then(function(d) {
-                document.getElementById('s-interval').value      = d.default_interval_seconds || 300;
-                document.getElementById('s-rotation').value      = d.default_rotation != null ? d.default_rotation : 0;
+                document.getElementById('s-interval').value = d.default_interval_seconds || 300;
+                document.getElementById('s-rotation').value = d.default_rotation != null ? d.default_rotation : 0;
                 document.getElementById('s-content-mode').value = d.default_content_mode || 'pool';
-                document.getElementById('s-title-above').value  = d.default_title_above || '';
-                document.getElementById('s-title-below').value  = d.default_title_below || '';
+                document.getElementById('s-title-above-options').value = d.default_title_above_options || '';
+                document.getElementById('s-title-below-options').value = d.default_title_below_options || '';
+
+                // Pool order
+                var order = d.pool_order || 'random';
+                document.getElementById('s-pool-random').checked     = order === 'random';
+                document.getElementById('s-pool-sequential').checked = order === 'sequential';
+
+                // Trailer weight
+                var hasWeight = d.trailer_weight_percent != null;
+                document.getElementById('s-weight-custom').checked = hasWeight;
+                if (hasWeight) document.getElementById('s-trailer-weight').value = d.trailer_weight_percent;
+                onWeightToggle();
+
+                // System
+                document.getElementById('s-refresh').value   = d.dashboard_refresh_seconds || 30;
+                document.getElementById('s-retention').value = d.log_retention_days || '';
+
                 onModeChange();
                 if (d.default_content_mode === 'pinned' && d.default_pinned_type) {
                     document.getElementById('s-pinned-type').value = d.default_pinned_type;
@@ -168,44 +265,75 @@ function loadSettings() {
                     populatePinnedItems('poster', null);
                 }
             })
-            .catch(function() { showSettingsAlert('Failed to load settings.', 'danger'); });
+            .catch(function() { showAlert('Failed to load settings.', 'danger'); });
     });
 }
 
 function saveSettings() {
     var interval = parseInt(document.getElementById('s-interval').value);
     if (isNaN(interval) || interval < 10) {
-        showSettingsAlert('Interval must be at least 10 seconds.', 'danger');
+        showAlert('Interval must be at least 10 seconds.', 'danger');
         return;
     }
-    var mode = document.getElementById('s-content-mode').value;
+    var mode       = document.getElementById('s-content-mode').value;
     var pinnedType = mode === 'pinned' ? document.getElementById('s-pinned-type').value : null;
     var pinnedId   = mode === 'pinned' ? (parseInt(document.getElementById('s-pinned-id').value) || null) : null;
     if (mode === 'pinned' && !pinnedId) {
-        showSettingsAlert('Select an item to pin.', 'danger');
+        showAlert('Select an item to pin.', 'danger');
         return;
     }
+    var hasWeight   = document.getElementById('s-weight-custom').checked;
+    var weightVal   = hasWeight ? (parseInt(document.getElementById('s-trailer-weight').value) || 0) : null;
+    var refreshVal  = parseInt(document.getElementById('s-refresh').value) || 30;
+    var retentionRaw = document.getElementById('s-retention').value.trim();
+    var retentionVal = retentionRaw ? (parseInt(retentionRaw) || null) : null;
+    var order = document.querySelector('input[name="pool-order"]:checked');
+
     fetch('/api/settings', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-            default_interval_seconds: interval,
-            default_rotation:         parseInt(document.getElementById('s-rotation').value),
-            default_content_mode:     mode,
-            default_pinned_type:      pinnedType,
-            default_pinned_id:        pinnedId,
-            default_title_above:      document.getElementById('s-title-above').value,
-            default_title_below:      document.getElementById('s-title-below').value,
+            default_interval_seconds:    interval,
+            default_rotation:            parseInt(document.getElementById('s-rotation').value),
+            default_content_mode:        mode,
+            default_pinned_type:         pinnedType,
+            default_pinned_id:           pinnedId,
+            default_title_above_options: document.getElementById('s-title-above-options').value,
+            default_title_below_options: document.getElementById('s-title-below-options').value,
+            pool_order:                  order ? order.value : 'random',
+            trailer_weight_percent:      weightVal,
+            dashboard_refresh_seconds:   refreshVal,
+            log_retention_days:          retentionVal,
         }),
     })
     .then(function(r) { return r.json(); })
     .then(function(d) {
-        if (d.error) { showSettingsAlert(d.error, 'danger'); return; }
-        showSettingsAlert('Settings saved.');
+        if (d.error) { showAlert(d.error, 'danger'); return; }
+        _dirty = false;
+        showAlert('Settings saved.');
     })
-    .catch(function() { showSettingsAlert('Failed to save settings.', 'danger'); });
+    .catch(function() { showAlert('Failed to save settings.', 'danger'); });
+}
+
+function applyDefaults() {
+    fetch('/api/frames/apply-defaults', {method: 'POST'})
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            showAlert('Defaults applied to ' + d.updated + ' frame' + (d.updated !== 1 ? 's' : '') + '.');
+        })
+        .catch(function() { showAlert('Failed to apply defaults.', 'danger'); });
 }
 
 loadSettings();
+
+// Dirty-state tracking — warn before leaving with unsaved changes
+var _dirty = false;
+document.querySelectorAll('input, select, textarea').forEach(function(el) {
+    el.addEventListener('change', function() { _dirty = true; });
+    el.addEventListener('input',  function() { _dirty = true; });
+});
+window.addEventListener('beforeunload', function(e) {
+    if (_dirty) { e.preventDefault(); e.returnValue = ''; }
+});
 </script>
 {% endblock %}

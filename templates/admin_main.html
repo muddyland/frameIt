@@ -45,6 +45,13 @@
         /* Badge text inside dark cards */
         .card-body .small { color: #adb5bd; }
         .card-body .text-light { color: #f8f9fa !important; }
+
+        #toast-container .toast {
+            background: #1a1d20;
+            border-color: #444;
+            color: #dee2e6;
+            min-width: 260px;
+        }
     </style>
     {% block head %}{% endblock %}
 </head>
@@ -132,15 +139,22 @@
     </div>
 
     <script>
-    function showAlert(msg, type) {
-        type = type || 'success';
-        var el = document.getElementById('alerts');
-        var id = 'alert-' + Date.now();
-        el.insertAdjacentHTML('beforeend',
-            '<div id="' + id + '" class="alert alert-' + type + ' alert-dismissible fade show" role="alert">' +
-            msg + '<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>');
-        setTimeout(function () { var a = document.getElementById(id); if (a) a.remove(); }, 4000);
-    }
+var _iconMap = {success:'fa-circle-check',danger:'fa-circle-xmark',warning:'fa-triangle-exclamation',info:'fa-circle-info'};
+function showAlert(msg, type) {
+    type = type || 'success';
+    var id = 'toast-' + Date.now();
+    document.getElementById('toast-container').insertAdjacentHTML('beforeend',
+        '<div id="' + id + '" class="toast" role="alert" aria-live="assertive" data-bs-autohide="true" data-bs-delay="4000">' +
+        '<div class="d-flex align-items-center p-3 gap-2">' +
+        '<i class="fa-solid ' + (_iconMap[type] || 'fa-circle-info') + ' text-' + type + '"></i>' +
+        '<span class="flex-fill">' + msg + '</span>' +
+        '<button type="button" class="btn-close btn-close-white ms-2" data-bs-dismiss="toast"></button>' +
+        '</div></div>');
+    var el = document.getElementById(id);
+    var t = new bootstrap.Toast(el);
+    t.show();
+    el.addEventListener('hidden.bs.toast', function() { el.remove(); });
+}
     </script>
     <script>
     function changePassword() {
@@ -166,6 +180,21 @@
         .catch(function() { showAlert('Failed to update password.', 'danger'); });
     }
     </script>
+    <script>
+document.addEventListener('keydown', function(e) {
+    var tag = document.activeElement ? document.activeElement.tagName : '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (document.body.classList.contains('modal-open')) return;
+    if ((e.key === 'r' || e.key === 'R') && !e.ctrlKey && !e.metaKey) {
+        if (typeof window._pageRefresh === 'function') { e.preventDefault(); window._pageRefresh(); }
+    }
+    if (e.key === '/') {
+        var el = document.querySelector('[data-search-input]');
+        if (el) { e.preventDefault(); el.focus(); }
+    }
+});
+    </script>
     {% block scripts %}{% endblock %}
+    <div id="toast-container" class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index:1100"></div>
 </body>
 </html>

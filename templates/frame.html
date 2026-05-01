@@ -41,13 +41,16 @@
         }
 
         /* Poster */
-        #poster-img {
+        .poster-buf {
             position: absolute;
             top: 0; left: 0;
             width: 100%; height: 100%;
             object-fit: contain;
-            display: none;
+            opacity: 0;
+            transition: opacity 0.6s ease;
+            pointer-events: none;
         }
+        .poster-buf.visible { opacity: 1; }
 
         /* Trailer */
         #trailer-container {
@@ -130,6 +133,21 @@
             color: #555;
         }
 
+        #empty-state {
+            display: none;
+            position: absolute;
+            inset: 0;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #444;
+            text-align: center;
+            gap: 0.5rem;
+        }
+        #empty-state .es-icon  { font-size: 3.5rem; }
+        #empty-state .es-title { font-size: 1.4rem; font-weight: 600; letter-spacing: 0.05em; color: #555; }
+        #empty-state .es-sub   { font-size: 0.85rem; }
+
         /* Server connection status dot */
         #conn-dot {
             position: fixed;
@@ -170,8 +188,14 @@
     <div id="root">
         <div id="top-banner"></div>
         <div id="content-area">
-            <img id="poster-img" src="" alt="">
+            <img id="poster-img-a" src="" alt="" class="poster-buf">
+            <img id="poster-img-b" src="" alt="" class="poster-buf">
             <div id="trailer-container"></div>
+            <div id="empty-state">
+                <div class="es-icon">📽</div>
+                <div class="es-title">No Content Configured</div>
+                <div class="es-sub">Add posters or trailers in the admin panel</div>
+            </div>
         </div>
         <div id="bottom-banner"></div>
     </div>
@@ -188,6 +212,9 @@
         var ytPlayer = null;
         var nextTimer = null;
         var displayOff = false;
+        var _posterActive = 'a';
+        var _errBackoff = 0;
+        var _backoffMs  = [30000, 60000, 120000, 240000, 300000];
 
         // Point admin link at the tokens page on the same origin
         document.getElementById('admin-link').href = window.location.origin + '/admin/tokens';
@@ -263,13 +290,23 @@
             if (ytPlayer) { try { ytPlayer.destroy(); } catch(e) {} ytPlayer = null; }
             document.getElementById('trailer-container').style.display = 'none';
             document.getElementById('trailer-container').innerHTML = '';
+            document.getElementById('empty-state').style.display = 'none';
 
-            var img = document.getElementById('poster-img');
-            document.getElementById('top-banner').textContent = data.title_above || '';
+            document.getElementById('top-banner').textContent    = data.title_above || '';
             document.getElementById('bottom-banner').textContent = data.title_below || '';
-            img.onload = function () { img.style.display = 'block'; hideLoader(); };
-            img.onerror = function () { fetchNext(); };
-            img.src = data.url;
+
+            var nextId  = _posterActive === 'a' ? 'b' : 'a';
+            var nextImg = document.getElementById('poster-img-' + nextId);
+            var curImg  = document.getElementById('poster-img-' + _posterActive);
+
+            nextImg.onload = function() {
+                nextImg.classList.add('visible');
+                curImg.classList.remove('visible');
+                _posterActive = nextId;
+                hideLoader();
+            };
+            nextImg.onerror = function() { fetchNext(); };
+            nextImg.src = data.url;
 
             nextTimer = setTimeout(fetchNext, data.interval_seconds * 1000);
         }
@@ -277,7 +314,9 @@
         function showTrailer(data) {
             clearTimer();
             if (ytPlayer) { try { ytPlayer.destroy(); } catch(e) {} ytPlayer = null; }
-            document.getElementById('poster-img').style.display = 'none';
+            document.getElementById('poster-img-a').classList.remove('visible');
+            document.getElementById('poster-img-b').classList.remove('visible');
+            document.getElementById('empty-state').style.display = 'none';
             document.getElementById('top-banner').textContent = data.title || '';
             document.getElementById('bottom-banner').textContent = 'Now Playing';
 
@@ -366,19 +405,30 @@
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
                     setConnStatus(true);
+                    _errBackoff = 0;
                     applyRotation(data.rotation || 0);
                     if (data.type === 'poster') {
                         showPoster(data);
                     } else if (data.type === 'trailer') {
                         showTrailer(data);
                     } else {
+                        document.getElementById('poster-img-a').classList.remove('visible');
+                        document.getElementById('poster-img-b').classList.remove('visible');
+                        document.getElementById('trailer-container').style.display = 'none';
+                        var emptyEl = document.getElementById('empty-state');
+                        emptyEl.style.display = 'flex';
                         hideLoader();
-                        nextTimer = setTimeout(fetchNext, (data.interval_seconds || 60) * 1000);
+                        nextTimer = setTimeout(function() {
+                            emptyEl.style.display = 'none';
+                            fetchNext();
+                        }, (data.interval_seconds || 60) * 1000);
                     }
                 })
                 .catch(function () {
                     setConnStatus(false);
-                    nextTimer = setTimeout(fetchNext, 30000);
+                    var delay = _backoffMs[Math.min(_errBackoff, _backoffMs.length - 1)];
+                    _errBackoff++;
+                    nextTimer = setTimeout(fetchNext, delay);
                 });
         }
 

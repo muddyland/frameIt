@@ -1,6 +1,13 @@
 {% extends "admin_main.html" %}
 {% block title %}Trailers{% endblock %}
 
+{% block head %}
+<style>
+@keyframes skel-pulse { 0%,100%{opacity:.35} 50%{opacity:.65} }
+.skel { background:#2a2d31!important; border-radius:4px; animation:skel-pulse 1.4s ease-in-out infinite; }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="row g-4">
     <!-- Add trailer card -->
@@ -27,9 +34,13 @@
 
     <!-- Trailer list -->
     <div class="col-12">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <h5 class="mb-0"><i class="fa-solid fa-film me-2"></i>Library <span id="trailer-count" class="badge bg-secondary ms-2"></span></h5>
-            <button class="btn btn-outline-light btn-sm" onclick="loadTrailers()"><i class="fa-solid fa-rotate me-1"></i>Refresh</button>
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+            <h5 class="mb-0"><i class="fa-solid fa-film me-2"></i>Library <span id="trailer-count" class="badge bg-secondary ms-1"></span></h5>
+            <div class="d-flex gap-2">
+                <input type="search" class="form-control form-control-sm bg-dark text-white border-secondary"
+                       id="trailer-search" data-search-input placeholder="Filter…" style="width:160px">
+                <button class="btn btn-outline-light btn-sm" onclick="loadTrailers()"><i class="fa-solid fa-rotate me-1"></i>Refresh</button>
+            </div>
         </div>
         <div id="trailer-list"></div>
     </div>
@@ -61,12 +72,54 @@
         </div>
     </div>
 </div>
+
+<!-- Delete confirmation modal -->
+<div class="modal fade" id="delete-modal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content bg-dark text-white border-danger">
+            <div class="modal-header border-danger">
+                <h5 class="modal-title"><i class="fa-solid fa-trash me-2"></i>Remove Trailer?</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-center">
+                <img id="delete-thumb" src="" alt="" style="width:120px;height:90px;object-fit:cover;border-radius:4px;margin-bottom:0.75rem;display:block;margin-left:auto;margin-right:auto">
+                <p class="fw-semibold mb-1" id="delete-title"></p>
+                <p class="text-secondary small mb-0">This removes the trailer and any cached video files.</p>
+            </div>
+            <div class="modal-footer border-danger d-flex gap-2">
+                <button type="button" class="btn btn-secondary flex-fill" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger flex-fill" id="delete-confirm-btn" onclick="confirmDelete()">Remove</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-var editModal = new bootstrap.Modal(document.getElementById('edit-modal'));
+window._pageRefresh = loadTrailers;
+
+var editModal   = new bootstrap.Modal(document.getElementById('edit-modal'));
+var deleteModal = new bootstrap.Modal(document.getElementById('delete-modal'));
 var _trailers = {};
+var _allTrailers = [];
+var _pendingDeleteId = null;
+
+// ── Skeleton ───────────────────────────────────────────────────────────────
+
+function showSkeletons() {
+    var row = '<div class="list-group-item bg-dark text-white border-secondary d-flex align-items-center gap-3 py-3">' +
+        '<div class="skel flex-shrink-0" style="width:80px;height:60px;border-radius:4px"></div>' +
+        '<div class="flex-fill">' +
+        '<div class="skel mb-2" style="height:14px;width:55%"></div>' +
+        '<div class="skel" style="height:12px;width:30%"></div>' +
+        '</div>' +
+        '<div class="skel" style="width:60px;height:24px;border-radius:4px"></div>' +
+        '</div>';
+    document.getElementById('trailer-list').innerHTML = '<div class="list-group">' + Array(5).fill(row).join('') + '</div>';
+}
+
+// ── Cache badge ────────────────────────────────────────────────────────────
 
 function _cacheBadge(t) {
     var s = t.cache_status;
@@ -77,55 +130,71 @@ function _cacheBadge(t) {
     return '';
 }
 
+// ── Render ─────────────────────────────────────────────────────────────────
+
+function renderTrailerList(trailers) {
+    var list = document.getElementById('trailer-list');
+    if (!trailers.length) {
+        list.innerHTML = '<div class="text-secondary">' +
+            (_allTrailers.length ? 'No trailers match your filter.' : 'No trailers yet. Add one above.') +
+            '</div>';
+        return;
+    }
+    list.innerHTML = '<div class="list-group">' + trailers.map(function(t) {
+        var activeBadge = t.active
+            ? '<span class="badge bg-success">Active</span>'
+            : '<span class="badge bg-secondary">Inactive</span>';
+        var clearBtn = (t.cache_status === 'ready' || t.cache_status === 'error')
+            ? '<button class="btn btn-sm btn-outline-secondary" title="Re-cache" onclick="clearCache(' + t.id + ')"><i class="fa-solid fa-rotate-right"></i></button>'
+            : '';
+        return '<div class="list-group-item bg-dark text-white border-secondary d-flex align-items-center gap-2">' +
+            '<img src="' + t.thumb_url + '" style="width:80px;height:60px;object-fit:cover;border-radius:4px;flex-shrink:0" alt="">' +
+            '<div class="flex-fill min-w-0">' +
+            '<div class="fw-semibold text-truncate">' + t.title + _cacheBadge(t) + '</div>' +
+            '<a href="https://youtu.be/' + t.youtube_id + '" target="_blank" class="text-secondary small">' + t.youtube_id + '</a>' +
+            '</div>' +
+            activeBadge +
+            clearBtn +
+            '<button class="btn btn-sm btn-outline-light" onclick="openEdit(' + t.id + ')"><i class="fa-solid fa-pen"></i></button>' +
+            '<button class="btn btn-sm btn-outline-danger" onclick="deleteTrailer(' + t.id + ')"><i class="fa-solid fa-trash"></i></button>' +
+            '</div>';
+    }).join('') + '</div>';
+}
+
+function filterTrailers() {
+    var q = (document.getElementById('trailer-search').value || '').trim().toLowerCase();
+    var list = q ? _allTrailers.filter(function(t) {
+        return t.title.toLowerCase().indexOf(q) !== -1
+            || t.youtube_id.toLowerCase().indexOf(q) !== -1;
+    }) : _allTrailers;
+    renderTrailerList(list);
+}
+
 function loadTrailers() {
+    showSkeletons();
     fetch('/api/trailers')
         .then(function(r) { return r.json(); })
         .then(function(trailers) {
             _trailers = {};
+            _allTrailers = trailers;
             trailers.forEach(function(t) { _trailers[t.id] = t; });
             document.getElementById('trailer-count').textContent = trailers.length;
-            var list = document.getElementById('trailer-list');
-            if (!trailers.length) {
-                list.innerHTML = '<div class="text-secondary">No trailers yet. Add one above.</div>';
-                return;
-            }
-            list.innerHTML = '<div class="list-group">' + trailers.map(function(t) {
-                var activeBadge = t.active
-                    ? '<span class="badge bg-success">Active</span>'
-                    : '<span class="badge bg-secondary">Inactive</span>';
-                var clearBtn = (t.cache_status === 'ready' || t.cache_status === 'error')
-                    ? '<button class="btn btn-sm btn-outline-secondary" title="Re-cache" onclick="clearCache(' + t.id + ')"><i class="fa-solid fa-rotate-right"></i></button>'
-                    : '';
-                return '<div class="list-group-item bg-dark text-white border-secondary d-flex align-items-center gap-2">' +
-                    '<img src="' + t.thumb_url + '" style="width:80px;height:60px;object-fit:cover;border-radius:4px" alt="">' +
-                    '<div class="flex-fill">' +
-                    '<div class="fw-semibold">' + t.title + _cacheBadge(t) + '</div>' +
-                    '<a href="https://youtu.be/' + t.youtube_id + '" target="_blank" class="text-secondary small">' + t.youtube_id + '</a>' +
-                    '</div>' +
-                    activeBadge +
-                    clearBtn +
-                    '<button class="btn btn-sm btn-outline-light" onclick="openEdit(' + t.id + ')"><i class="fa-solid fa-pen"></i></button>' +
-                    '<button class="btn btn-sm btn-outline-danger" onclick="deleteTrailer(' + t.id + ')"><i class="fa-solid fa-trash"></i></button>' +
-                    '</div>';
-            }).join('') + '</div>';
+            filterTrailers();
         })
         .catch(function() { showAlert('Failed to load trailers.', 'danger'); });
 }
 
+document.getElementById('trailer-search').addEventListener('input', filterTrailers);
+
+// ── Edit ───────────────────────────────────────────────────────────────────
+
 function openEdit(id) {
     var t = _trailers[id];
     if (!t) return;
-    document.getElementById('edit-id').value = t.id;
-    document.getElementById('edit-title').value = t.title;
+    document.getElementById('edit-id').value      = t.id;
+    document.getElementById('edit-title').value   = t.title;
     document.getElementById('edit-active').checked = t.active;
     editModal.show();
-}
-
-function clearCache(id) {
-    fetch('/api/trailers/' + id + '/cache', { method: 'DELETE' })
-        .then(function(r) { return r.json(); })
-        .then(function() { loadTrailers(); showAlert('Cache cleared — re-downloading.'); })
-        .catch(function() { showAlert('Failed to clear cache.', 'danger'); });
 }
 
 function saveEdit() {
@@ -134,7 +203,7 @@ function saveEdit() {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            title: document.getElementById('edit-title').value,
+            title:  document.getElementById('edit-title').value,
             active: document.getElementById('edit-active').checked,
         })
     })
@@ -143,21 +212,55 @@ function saveEdit() {
     .catch(function() { showAlert('Failed to save.', 'danger'); });
 }
 
-function deleteTrailer(id) {
-    if (!confirm('Remove this trailer?')) return;
-    fetch('/api/trailers/' + id, { method: 'DELETE' })
-        .then(function() { loadTrailers(); showAlert('Trailer removed.'); })
-        .catch(function() { showAlert('Failed to remove.', 'danger'); });
+// ── Cache ──────────────────────────────────────────────────────────────────
+
+function clearCache(id) {
+    fetch('/api/trailers/' + id + '/cache', { method: 'DELETE' })
+        .then(function(r) { return r.json(); })
+        .then(function() { loadTrailers(); showAlert('Cache cleared — re-downloading.'); })
+        .catch(function() { showAlert('Failed to clear cache.', 'danger'); });
 }
+
+// ── Delete ─────────────────────────────────────────────────────────────────
+
+function deleteTrailer(id) {
+    var t = _trailers[id];
+    if (!t) return;
+    _pendingDeleteId = id;
+    document.getElementById('delete-thumb').src    = t.thumb_url;
+    document.getElementById('delete-title').textContent = t.title;
+    deleteModal.show();
+}
+
+function confirmDelete() {
+    if (!_pendingDeleteId) return;
+    var btn = document.getElementById('delete-confirm-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i>Removing…';
+    fetch('/api/trailers/' + _pendingDeleteId, { method: 'DELETE' })
+        .then(function() { deleteModal.hide(); loadTrailers(); showAlert('Trailer removed.'); })
+        .catch(function() { showAlert('Failed to remove.', 'danger'); })
+        .finally(function() {
+            btn.disabled = false;
+            btn.innerHTML = 'Remove';
+            _pendingDeleteId = null;
+        });
+}
+
+// ── Add form ───────────────────────────────────────────────────────────────
 
 document.getElementById('add-form').addEventListener('submit', function(e) {
     e.preventDefault();
     var btn = document.getElementById('add-btn');
-    btn.disabled = true; btn.textContent = 'Adding...';
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i>Adding…';
     fetch('/api/trailers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: document.getElementById('yt-url').value, title: document.getElementById('yt-title').value })
+        body: JSON.stringify({
+            url:   document.getElementById('yt-url').value,
+            title: document.getElementById('yt-title').value,
+        })
     })
     .then(function(r) { return r.json(); })
     .then(function(data) {
@@ -167,9 +270,13 @@ document.getElementById('add-form').addEventListener('submit', function(e) {
         loadTrailers();
     })
     .catch(function() { showAlert('Failed to add trailer.', 'danger'); })
-    .finally(function() { btn.disabled = false; btn.textContent = 'Add'; });
+    .finally(function() {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-plus me-1"></i>Add';
+    });
 });
 
+showSkeletons();
 loadTrailers();
 </script>
 {% endblock %}

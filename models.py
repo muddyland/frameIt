@@ -123,6 +123,16 @@ class Settings(db.Model):
     default_content_mode = db.Column(db.String(10), nullable=False, default='pool')
     default_pinned_type = db.Column(db.String(10), nullable=True)   # 'poster' or 'trailer'
     default_pinned_id = db.Column(db.Integer, nullable=True)
+    # Pool behaviour
+    pool_order = db.Column(db.String(10), nullable=False, default='random')      # 'random' or 'sequential'
+    trailer_weight_percent = db.Column(db.Integer, nullable=True)                # null = count-based
+    # Dashboard
+    dashboard_refresh_seconds = db.Column(db.Integer, nullable=False, default=30)
+    # Maintenance
+    log_retention_days = db.Column(db.Integer, nullable=True)                    # null = keep forever
+    # Cycling poster text options (newline-separated; overrides single-value fields when set)
+    default_title_above_options = db.Column(db.Text, nullable=True)
+    default_title_below_options = db.Column(db.Text, nullable=True)
 
     def to_dict(self):
         return {
@@ -133,4 +143,10 @@ class Settings(db.Model):
             'default_content_mode': self.default_content_mode or 'pool',
             'default_pinned_type': self.default_pinned_type or '',
             'default_pinned_id': self.default_pinned_id,
+            'pool_order': self.pool_order or 'random',
+            'trailer_weight_percent': self.trailer_weight_percent,
+            'dashboard_refresh_seconds': self.dashboard_refresh_seconds or 30,
+            'log_retention_days': self.log_retention_days,
+            'default_title_above_options': self.default_title_above_options or '',
+            'default_title_below_options': self.default_title_below_options or '',
         }

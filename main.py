@@ -1,3 +1,4 @@
+# pylint: disable=too-many-lines
 import hashlib
 import logging
 import os
@@ -9,6 +10,7 @@ import shutil
 import subprocess
 import threading
 import uuid
+from datetime import timedelta
 
 import requests as http_requests
 from flask import (Flask, render_template, request, jsonify, send_from_directory,
@@ -103,12 +105,24 @@ def allowed_image(filename):
     return filename.rsplit('.', 1)[-1].lower() in {'jpg', 'jpeg', 'png', 'webp'}
 
 
+_DEFAULT_TITLE_ABOVE_OPTIONS = (
+    'Now Playing\nComing Soon\nNow in Theaters\n'
+    'Get Your Tickets\nFeature Presentation\nNow Showing'
+)
+_DEFAULT_TITLE_BELOW_OPTIONS = (
+    'Now in Theaters\nOnly in Theaters\nReserve Your Seats Today\n'
+    'Experience the Magic\nComing Soon to Theaters'
+)
+
+
 def get_settings():
     """Return the singleton Settings row, creating it with defaults if absent."""
     s = db.session.get(Settings, 1)
     if not s:
         s = Settings(id=1, default_title_above='Now Playing', default_title_below='',
-                     default_interval_seconds=300)
+                     default_interval_seconds=300,
+                     default_title_above_options=_DEFAULT_TITLE_ABOVE_OPTIONS,
+                     default_title_below_options=_DEFAULT_TITLE_BELOW_OPTIONS)
         db.session.add(s)
         db.session.commit()
     return s
@@ -281,46 +295,109 @@ def frame_checkin():
     })
 
 
+def _pick_banner(options_str, fallback):
+    """Return a random non-empty line from options_str, or fallback."""
+    opts = [o.strip() for o in (options_str or '').splitlines() if o.strip()]
+    return random.choice(opts) if opts else fallback
+
+
+def _select_pool_content(frame, settings, pool_posters, pool_trailers):
+    """Pick the next content item from the active pool."""
+    pool = pool_posters + pool_trailers
+    if not pool:
+        return None
+
+    if settings.pool_order == 'sequential':
+        last_log = (FrameLog.query.filter_by(frame_id=frame.id)
+                    .order_by(FrameLog.shown_at.desc()).first())
+        result = pool[0]
+        if last_log:
+            idx = next(
+                (i for i, (ct, it) in enumerate(pool)
+                 if ct == last_log.content_type and it.id == last_log.content_id),
+                None,
+            )
+            if idx is not None:
+                result = pool[(idx + 1) % len(pool)]
+        return result
+
+    # Random mode: exclude last-shown poster to avoid back-to-back repeats.
+    last_log = (FrameLog.query.filter_by(frame_id=frame.id)
+                .order_by(FrameLog.shown_at.desc()).first())
+    last_poster_id = (
+        last_log.content_id
+        if last_log and last_log.content_type == 'poster'
+        else None
+    )
+    candidates = (
+        [p for p in pool_posters if p[1].id != last_poster_id]
+        if last_poster_id and len(pool_posters) > 1
+        else pool_posters
+    )
+    weight = settings.trailer_weight_percent
+    if weight is None or not candidates or not pool_trailers:
+        return random.choice(candidates + pool_trailers)
+    if random.randint(0, 99) < weight:
+        return random.choice(pool_trailers)
+    return random.choice(candidates)
+
+
 @app.route('/api/frames/<int:frame_id>/next', methods=['GET'])
 def frame_next(frame_id):
     frame = Frame.query.get_or_404(frame_id)
     frame.last_seen = utcnow()
     db.session.commit()
 
+    settings = get_settings()
     content = None
 
     if frame.content_mode == 'pinned' and frame.pinned_type and frame.pinned_id:
         if frame.pinned_type == 'poster':
-            content = Poster.query.filter_by(id=frame.pinned_id, active=True).first()
-            if content:
-                content = ('poster', content)
+            item = Poster.query.filter_by(id=frame.pinned_id, active=True).first()
+            if item:
+                content = ('poster', item)
         elif frame.pinned_type == 'trailer':
-            content = Trailer.query.filter_by(id=frame.pinned_id, active=True).first()
-            if content:
-                content = ('trailer', content)
+            item = Trailer.query.filter_by(id=frame.pinned_id, active=True).first()
+            if item:
+                content = ('trailer', item)
 
     if not content:
-        # Pool mode — collect all active items and pick one randomly
-        posters = [(Poster, p) for p in Poster.query.filter_by(active=True).all()]
-        trailers = [(Trailer, t) for t in Trailer.query.filter_by(active=True).all()]
-        pool = [('poster', p) for _, p in posters] + [('trailer', t) for _, t in trailers]
-        if pool:
-            content = random.choice(pool)
+        pool_posters = [
+            ('poster', p)
+            for p in Poster.query.filter_by(active=True)
+            .order_by(Poster.sort_order, Poster.id).all()
+        ]
+        pool_trailers = [
+            ('trailer', t)
+            for t in Trailer.query.filter_by(active=True).order_by(Trailer.id).all()
+        ]
+        content = _select_pool_content(frame, settings, pool_posters, pool_trailers)
 
     if not content:
-        return jsonify({'type': 'empty', 'rotation': frame.rotation, 'interval_seconds': frame.interval_seconds})
+        return jsonify({
+            'type': 'empty',
+            'rotation': frame.rotation,
+            'interval_seconds': frame.interval_seconds,
+        })
 
     content_type, item = content
-
-    log = FrameLog(frame_id=frame.id, content_type=content_type, content_id=item.id)
-    db.session.add(log)
+    db.session.add(FrameLog(frame_id=frame.id, content_type=content_type, content_id=item.id))
+    if settings.log_retention_days:
+        cutoff = utcnow() - timedelta(days=settings.log_retention_days)
+        FrameLog.query.filter(
+            FrameLog.frame_id == frame.id,
+            FrameLog.shown_at < cutoff,
+        ).delete()
     db.session.commit()
 
     base = {'rotation': frame.rotation, 'interval_seconds': frame.interval_seconds}
     if content_type == 'poster':
-        settings = get_settings()
-        title_above = item.title_above if item.title_above is not None else settings.default_title_above
-        title_below = item.title_below if item.title_below is not None else settings.default_title_below
+        title_above = (item.title_above if item.title_above is not None
+                       else _pick_banner(settings.default_title_above_options,
+                                         settings.default_title_above))
+        title_below = (item.title_below if item.title_below is not None
+                       else _pick_banner(settings.default_title_below_options,
+                                         settings.default_title_below))
         return jsonify({**base, 'type': 'poster', 'id': item.id,
                         'url': f'/images/{item.filename}',
                         'title_above': title_above or '',
@@ -391,6 +468,17 @@ def upload_poster():
     db.session.add(poster)
     db.session.commit()
     return jsonify(poster.to_dict()), 201
+
+
+@app.route('/api/posters/reorder', methods=['POST'])
+def reorder_posters():
+    items = request.get_json(silent=True) or []
+    for item in items:
+        poster = db.session.get(Poster, item.get('id'))
+        if poster is not None:
+            poster.sort_order = int(item.get('sort_order', 0))
+    db.session.commit()
+    return jsonify({'ok': True})
 
 
 @app.route('/api/posters/<int:poster_id>', methods=['PATCH'])
@@ -589,6 +677,64 @@ def update_frame(frame_id):
 
 
 # ---------------------------------------------------------------------------
+# Dashboard summary API
+# ---------------------------------------------------------------------------
+
+@app.route('/api/frames/apply-defaults', methods=['POST'])
+def apply_defaults_to_frames():
+    s = get_settings()
+    frames = Frame.query.all()
+    for frame in frames:
+        frame.interval_seconds = s.default_interval_seconds
+        frame.rotation         = s.default_rotation
+        frame.content_mode     = s.default_content_mode
+        frame.pinned_type      = s.default_pinned_type
+        frame.pinned_id        = s.default_pinned_id
+    db.session.commit()
+    return jsonify({'updated': len(frames)})
+
+
+@app.route('/api/dashboard/summary', methods=['GET'])
+def dashboard_summary():
+    logs = (FrameLog.query
+            .order_by(FrameLog.shown_at.desc())
+            .limit(10)
+            .all())
+    activity = []
+    for log in logs:
+        frame = db.session.get(Frame, log.frame_id)
+        entry = {
+            'frame_name': (frame.name or frame.ip) if frame else 'Unknown',
+            'content_type': log.content_type,
+            'shown_at': log.shown_at.isoformat(),
+            'title': None,
+            'thumb_url': None,
+        }
+        if log.content_type == 'poster':
+            poster = db.session.get(Poster, log.content_id)
+            if poster:
+                entry['title'] = poster.title_above or poster.title_below or poster.filename
+                entry['thumb_url'] = f'/images/{poster.filename}'
+        else:
+            trailer = db.session.get(Trailer, log.content_id)
+            if trailer:
+                entry['title'] = trailer.title
+                entry['thumb_url'] = trailer.to_dict()['thumb_url']
+        activity.append(entry)
+
+    return jsonify({
+        'posters_active': Poster.query.filter_by(active=True).count(),
+        'posters_total': Poster.query.count(),
+        'trailers_active': Trailer.query.filter_by(active=True).count(),
+        'trailers_total': Trailer.query.count(),
+        'trailers_ready': Trailer.query.filter_by(cache_status='ready').count(),
+        'trailers_error': Trailer.query.filter_by(cache_status='error').count(),
+        'tokens_unused': RegistrationToken.query.filter_by(used_at=None).count(),
+        'activity': activity,
+    })
+
+
+# ---------------------------------------------------------------------------
 # Agent registration + proxy
 # ---------------------------------------------------------------------------
 
@@ -781,7 +927,7 @@ def get_settings_api():
 
 
 @app.route('/api/settings', methods=['PATCH'])
-def update_settings():
+def update_settings():  # pylint: disable=too-many-branches
     s = get_settings()
     body = request.get_json(silent=True) or {}
     if 'default_title_above' in body:
@@ -805,6 +951,28 @@ def update_settings():
         s.default_pinned_type = v or None
     if 'default_pinned_id' in body:
         s.default_pinned_id = int(body['default_pinned_id']) if body['default_pinned_id'] else None
+    if 'pool_order' in body:
+        if body['pool_order'] not in ('random', 'sequential'):
+            return jsonify({'error': 'pool_order must be random or sequential'}), 400
+        s.pool_order = body['pool_order']
+    if 'trailer_weight_percent' in body:
+        val = body['trailer_weight_percent']
+        if val is None or val == '':
+            s.trailer_weight_percent = None
+        else:
+            val = int(val)
+            if not 0 <= val <= 100:
+                return jsonify({'error': 'trailer_weight_percent must be 0–100'}), 400
+            s.trailer_weight_percent = val
+    if 'dashboard_refresh_seconds' in body:
+        s.dashboard_refresh_seconds = max(5, int(body['dashboard_refresh_seconds']))
+    if 'log_retention_days' in body:
+        val = body['log_retention_days']
+        s.log_retention_days = max(1, int(val)) if val else None
+    if 'default_title_above_options' in body:
+        s.default_title_above_options = body['default_title_above_options'].strip() or None
+    if 'default_title_below_options' in body:
+        s.default_title_below_options = body['default_title_below_options'].strip() or None
     db.session.commit()
     return jsonify(s.to_dict())
 
@@ -935,11 +1103,18 @@ _MIGRATIONS = [
     ('frame',    'pending_command',             'VARCHAR(20)'),
     ('trailer',  'cache_status',               'VARCHAR(12)'),
     ('trailer',  'cached_filename',            'VARCHAR(24)'),
+    ('settings', 'pool_order',                 "VARCHAR(10) NOT NULL DEFAULT 'random'"),
+    ('settings', 'trailer_weight_percent',     'INTEGER'),
+    ('settings', 'dashboard_refresh_seconds',  'INTEGER NOT NULL DEFAULT 30'),
+    ('settings', 'log_retention_days',         'INTEGER'),
+    ('settings', 'default_title_above_options','TEXT'),
+    ('settings', 'default_title_below_options','TEXT'),
 ]
 
 
 def migrate_schema():
     """Apply any pending column additions — safe to call on every startup."""
+    added = set()
     with db.engine.connect() as conn:
         for table, column, definition in _MIGRATIONS:
             rows = conn.execute(db.text(f'PRAGMA table_info("{table}")')).fetchall()
@@ -947,7 +1122,23 @@ def migrate_schema():
             if column not in existing:
                 conn.execute(db.text(f'ALTER TABLE "{table}" ADD COLUMN {column} {definition}'))
                 conn.commit()
+                added.add((table, column))
                 print(f'[db] Added column {table}.{column}')
+
+        # Seed banner text options the first time these columns are added to an
+        # existing DB — so current users get the defaults without needing a
+        # manual settings save.
+        _seeds = {
+            'default_title_above_options': _DEFAULT_TITLE_ABOVE_OPTIONS,
+            'default_title_below_options': _DEFAULT_TITLE_BELOW_OPTIONS,
+        }
+        for col, val in _seeds.items():
+            if ('settings', col) in added:
+                conn.execute(
+                    db.text(f'UPDATE settings SET {col} = :v WHERE id = 1'),
+                    {'v': val},
+                )
+                conn.commit()
 
 
 @app.cli.command('init-db')

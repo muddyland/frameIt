@@ -1,38 +1,25 @@
 {% extends "admin_main.html" %}
 {% block title %}Posters{% endblock %}
 
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<style>
+@keyframes skel-pulse { 0%,100%{opacity:.35} 50%{opacity:.65} }
+.skel { background:#2a2d31!important; border-radius:4px; animation:skel-pulse 1.4s ease-in-out infinite; }
+.poster-card-wrap { position:relative; }
+.poster-cb { position:absolute; top:7px; left:7px; z-index:10; width:18px; height:18px; cursor:pointer; }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="row g-4">
-
-    <!-- Default text settings -->
-    <div class="col-12">
-        <div class="card bg-secondary bg-opacity-10 border-secondary">
-            <div class="card-body">
-                <h5 class="card-title mb-1"><i class="fa-solid fa-align-center me-2"></i>Default Banner Text</h5>
-                <p class="text-secondary small mb-3">Used for any poster that has no custom text set. Leave a field blank to show nothing.</p>
-                <div class="row g-3 align-items-end">
-                    <div class="col-md-4">
-                        <label class="form-label">Default Text Above</label>
-                        <input type="text" class="form-control bg-dark text-white border-secondary" id="default-above">
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label">Default Text Below</label>
-                        <input type="text" class="form-control bg-dark text-white border-secondary" id="default-below">
-                    </div>
-                    <div class="col-md-2">
-                        <button class="btn btn-outline-light w-100" onclick="saveDefaults()"><i class="fa-solid fa-floppy-disk me-1"></i>Save Defaults</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
 
     <!-- Upload card -->
     <div class="col-12">
         <div class="card bg-secondary bg-opacity-10 border-secondary">
             <div class="card-body">
                 <h5 class="card-title mb-1"><i class="fa-solid fa-upload me-2"></i>Upload Poster</h5>
-                <p class="text-secondary small mb-3">Leave text fields blank to use the defaults above.</p>
+                <p class="text-secondary small mb-3">Leave text fields blank to use banner defaults from Settings.</p>
                 <form id="upload-form" class="row g-3">
                     <div class="col-md-4">
                         <label class="form-label">Image File</label>
@@ -40,11 +27,11 @@
                     </div>
                     <div class="col-md-3">
                         <label class="form-label">Text Above <span class="text-secondary small">(optional)</span></label>
-                        <input type="text" class="form-control bg-dark text-white border-secondary" id="title-above" placeholder="Leave blank for default">
+                        <input type="text" class="form-control bg-dark text-white border-secondary" id="title-above" placeholder="Leave blank for Settings default">
                     </div>
                     <div class="col-md-3">
                         <label class="form-label">Text Below <span class="text-secondary small">(optional)</span></label>
-                        <input type="text" class="form-control bg-dark text-white border-secondary" id="title-below" placeholder="Leave blank for default">
+                        <input type="text" class="form-control bg-dark text-white border-secondary" id="title-below" placeholder="Leave blank for Settings default">
                     </div>
                     <div class="col-md-2 d-flex align-items-end">
                         <button type="submit" class="btn btn-primary w-100" id="upload-btn"><i class="fa-solid fa-upload me-1"></i>Upload</button>
@@ -56,9 +43,27 @@
 
     <!-- Poster grid -->
     <div class="col-12">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <h5 class="mb-0"><i class="fa-solid fa-images me-2"></i>Library <span id="poster-count" class="badge bg-secondary ms-2"></span></h5>
-            <button class="btn btn-outline-light btn-sm" onclick="loadPosters()"><i class="fa-solid fa-rotate me-1"></i>Refresh</button>
+        <!-- Toolbar -->
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+            <div class="d-flex align-items-center gap-2">
+                <h5 class="mb-0"><i class="fa-solid fa-images me-2"></i>Library <span id="poster-count" class="badge bg-secondary ms-1"></span></h5>
+                <div id="bulk-bar" class="d-none align-items-center gap-2 ms-2">
+                    <span id="bulk-count" class="text-secondary small"></span>
+                    <button class="btn btn-sm btn-outline-success"   onclick="bulkSetActive(true)">Activate</button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="bulkSetActive(false)">Deactivate</button>
+                    <button class="btn btn-sm btn-outline-danger"    onclick="bulkDelete()">Delete</button>
+                    <button class="btn btn-sm btn-link text-secondary p-0" onclick="clearSelection()">Clear</button>
+                </div>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <div class="form-check mb-0" id="select-all-wrap" style="display:none!important">
+                    <input class="form-check-input" type="checkbox" id="select-all" onchange="toggleSelectAll()" title="Select all">
+                    <label class="form-check-label small text-secondary" for="select-all">All</label>
+                </div>
+                <input type="search" class="form-control form-control-sm bg-dark text-white border-secondary"
+                       id="poster-search" data-search-input placeholder="Filter…" style="width:160px">
+                <button class="btn btn-outline-light btn-sm" onclick="loadPosters()"><i class="fa-solid fa-rotate me-1"></i>Refresh</button>
+            </div>
         </div>
         <div id="poster-grid" class="row g-3"></div>
     </div>
@@ -78,14 +83,12 @@
                     <img id="edit-preview" src="" alt="" style="max-height:180px;max-width:100%;object-fit:contain;border-radius:4px;">
                 </div>
                 <div class="mb-3">
-                    <label class="form-label">Text Above <span class="text-secondary small">(leave blank to use default)</span></label>
-                    <input type="text" class="form-control bg-dark text-white border-secondary" id="edit-above">
-                    <div class="form-text text-secondary" id="edit-above-hint"></div>
+                    <label class="form-label">Text Above <span class="text-secondary small">(optional)</span></label>
+                    <input type="text" class="form-control bg-dark text-white border-secondary" id="edit-above" placeholder="Leave blank for Settings default">
                 </div>
                 <div class="mb-3">
-                    <label class="form-label">Text Below <span class="text-secondary small">(leave blank to use default)</span></label>
-                    <input type="text" class="form-control bg-dark text-white border-secondary" id="edit-below">
-                    <div class="form-text text-secondary" id="edit-below-hint"></div>
+                    <label class="form-label">Text Below <span class="text-secondary small">(optional)</span></label>
+                    <input type="text" class="form-control bg-dark text-white border-secondary" id="edit-below" placeholder="Leave blank for Settings default">
                 </div>
                 <div class="form-check form-switch">
                     <input class="form-check-input" type="checkbox" id="edit-active">
@@ -123,91 +126,181 @@
 
 {% block scripts %}
 <script>
+window._pageRefresh = loadPosters;
+
 var editModal   = new bootstrap.Modal(document.getElementById('edit-modal'));
 var deleteModal = new bootstrap.Modal(document.getElementById('delete-modal'));
 var pendingDeleteId = null;
-var currentDefaults = { default_title_above: '', default_title_below: '' };
 var postersById = {};
+var _allPosters = [];
+var _selectedIds = new Set();
+var _sortable = null;
 
-// ── Defaults ───────────────────────────────────────────────────────────────
+// ── Skeleton ───────────────────────────────────────────────────────────────
 
-function loadDefaults() {
-    fetch('/api/settings')
-        .then(function(r) { return r.json(); })
-        .then(function(s) {
-            currentDefaults = s;
-            document.getElementById('default-above').value = s.default_title_above || '';
-            document.getElementById('default-below').value = s.default_title_below || '';
-            updateUploadPlaceholders(s);
-        });
+function showSkeletons() {
+    var grid = document.getElementById('poster-grid');
+    var card = '<div class="col-6 col-sm-4 col-md-3 col-lg-2">' +
+        '<div class="card bg-dark border-secondary h-100">' +
+        '<div class="skel" style="height:200px"></div>' +
+        '<div class="card-body p-2">' +
+        '<div class="skel mb-2" style="height:13px;width:75%"></div>' +
+        '<div class="skel mb-2" style="height:13px;width:55%"></div>' +
+        '<div class="skel" style="height:20px;width:45%"></div>' +
+        '</div></div></div>';
+    grid.innerHTML = Array(12).fill(card).join('');
 }
 
-function updateUploadPlaceholders(s) {
-    var abovePlaceholder = s.default_title_above ? 'Default: "' + s.default_title_above + '"' : 'Leave blank for no text';
-    var belowPlaceholder = s.default_title_below ? 'Default: "' + s.default_title_below + '"' : 'Leave blank for no text';
-    document.getElementById('title-above').placeholder = abovePlaceholder;
-    document.getElementById('title-below').placeholder = belowPlaceholder;
-}
+// ── Grid rendering ─────────────────────────────────────────────────────────
 
-function saveDefaults() {
-    fetch('/api/settings', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            default_title_above: document.getElementById('default-above').value,
-            default_title_below: document.getElementById('default-below').value,
-        })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(s) {
-        currentDefaults = s;
-        updateUploadPlaceholders(s);
-        showAlert('Default text saved.');
-    })
-    .catch(function() { showAlert('Failed to save defaults.', 'danger'); });
-}
-
-// ── Poster grid ────────────────────────────────────────────────────────────
-
-function titleDisplay(custom, defaultVal, side) {
+function titleDisplay(custom) {
     if (custom !== null && custom !== undefined) {
         return '<span class="text-light">' + (custom || '&nbsp;') + '</span>';
     }
-    var fallback = defaultVal || ('(no text ' + side + ')');
-    return '<span class="text-secondary fst-italic">↩ ' + fallback + '</span>';
+    return '<span class="text-secondary fst-italic">↩ default</span>';
+}
+
+function renderPosterGrid(posters) {
+    var grid = document.getElementById('poster-grid');
+    if (!posters.length) {
+        grid.innerHTML = '<div class="col text-secondary">No posters match your filter.</div>';
+        if (_sortable) { _sortable.destroy(); _sortable = null; }
+        return;
+    }
+    grid.innerHTML = posters.map(function(p) {
+        var badge = p.active
+            ? '<span class="badge bg-success">Active</span>'
+            : '<span class="badge bg-secondary">Inactive</span>';
+        return '<div class="col-6 col-sm-4 col-md-3 col-lg-2 poster-card-wrap" id="card-' + p.id + '">' +
+            '<input type="checkbox" class="poster-cb" data-id="' + p.id + '">' +
+            '<div class="card bg-dark border-secondary h-100">' +
+            '<img src="' + p.url + '" class="card-img-top" style="height:200px;object-fit:cover;cursor:grab" alt="">' +
+            '<div class="card-body p-2">' +
+            '<div class="small text-truncate mb-1">' + titleDisplay(p.title_above) + '</div>' +
+            '<div class="small text-truncate mb-2">' + titleDisplay(p.title_below) + '</div>' +
+            badge +
+            '</div>' +
+            '<div class="card-footer p-2 d-flex gap-2 border-secondary">' +
+            '<button class="btn btn-sm btn-outline-light flex-fill" onclick="openEdit(' + p.id + ')"><i class="fa-solid fa-pen"></i></button>' +
+            '<button class="btn btn-sm btn-outline-danger" onclick="openDelete(' + p.id + ')"><i class="fa-solid fa-trash"></i></button>' +
+            '</div></div></div>';
+    }).join('');
+
+    // Wire checkboxes
+    grid.querySelectorAll('.poster-cb').forEach(function(cb) {
+        var id = parseInt(cb.dataset.id);
+        cb.checked = _selectedIds.has(id);
+        cb.addEventListener('change', function() {
+            if (this.checked) _selectedIds.add(id); else _selectedIds.delete(id);
+            updateBulkBar();
+        });
+    });
+
+    // Reveal select-all control and init sortable
+    document.getElementById('select-all-wrap').style.setProperty('display', 'flex', 'important');
+
+    if (_sortable) _sortable.destroy();
+    _sortable = new Sortable(grid, {
+        animation: 150,
+        ghostClass: 'opacity-50',
+        handle: '.card-img-top',
+        onEnd: function() {
+            var items = [];
+            grid.querySelectorAll('[id^="card-"]').forEach(function(el, idx) {
+                items.push({ id: parseInt(el.id.replace('card-', '')), sort_order: idx });
+            });
+            fetch('/api/posters/reorder', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(items),
+            })
+            .then(function(r) { return r.json(); })
+            .then(function() { showAlert('Order saved.'); })
+            .catch(function() { showAlert('Failed to save order.', 'danger'); });
+        }
+    });
+}
+
+function filterPosters() {
+    var q = (document.getElementById('poster-search').value || '').trim().toLowerCase();
+    var list = q ? _allPosters.filter(function(p) {
+        return (p.title_above || '').toLowerCase().indexOf(q) !== -1
+            || (p.title_below || '').toLowerCase().indexOf(q) !== -1
+            || (p.filename   || '').toLowerCase().indexOf(q) !== -1;
+    }) : _allPosters;
+    renderPosterGrid(list);
 }
 
 function loadPosters() {
+    showSkeletons();
     fetch('/api/posters')
         .then(function(r) { return r.json(); })
         .then(function(posters) {
             postersById = {};
+            _allPosters = posters;
             posters.forEach(function(p) { postersById[p.id] = p; });
             document.getElementById('poster-count').textContent = posters.length;
-            var grid = document.getElementById('poster-grid');
-            if (!posters.length) {
-                grid.innerHTML = '<div class="col text-secondary">No posters yet. Upload one above.</div>';
-                return;
-            }
-            grid.innerHTML = posters.map(function(p) {
-                var badge = p.active
-                    ? '<span class="badge bg-success">Active</span>'
-                    : '<span class="badge bg-secondary">Inactive</span>';
-                return '<div class="col-6 col-sm-4 col-md-3 col-lg-2" id="card-' + p.id + '">' +
-                    '<div class="card bg-dark border-secondary h-100">' +
-                    '<img src="' + p.url + '" class="card-img-top" style="height:200px;object-fit:cover" alt="">' +
-                    '<div class="card-body p-2">' +
-                    '<div class="small text-truncate mb-1">' + titleDisplay(p.title_above, currentDefaults.default_title_above, 'above') + '</div>' +
-                    '<div class="small text-truncate mb-2">' + titleDisplay(p.title_below, currentDefaults.default_title_below, 'below') + '</div>' +
-                    badge +
-                    '</div>' +
-                    '<div class="card-footer p-2 d-flex gap-2 border-secondary">' +
-                    '<button class="btn btn-sm btn-outline-light flex-fill" onclick="openEdit(' + p.id + ')"><i class="fa-solid fa-pen"></i></button>' +
-                    '<button class="btn btn-sm btn-outline-danger" onclick="openDelete(' + p.id + ')"><i class="fa-solid fa-trash"></i></button>' +
-                    '</div></div></div>';
-            }).join('');
+            filterPosters();
         })
         .catch(function() { showAlert('Failed to load posters.', 'danger'); });
+}
+
+document.getElementById('poster-search').addEventListener('input', filterPosters);
+
+// ── Bulk actions ───────────────────────────────────────────────────────────
+
+function updateBulkBar() {
+    var n = _selectedIds.size;
+    var bar = document.getElementById('bulk-bar');
+    bar.classList.toggle('d-none', n === 0);
+    bar.classList.toggle('d-flex', n > 0);
+    document.getElementById('bulk-count').textContent = n + ' selected';
+}
+
+function clearSelection() {
+    _selectedIds.clear();
+    document.querySelectorAll('.poster-cb').forEach(function(cb) { cb.checked = false; });
+    document.getElementById('select-all').checked = false;
+    updateBulkBar();
+}
+
+function toggleSelectAll() {
+    var checked = document.getElementById('select-all').checked;
+    document.querySelectorAll('.poster-cb').forEach(function(cb) {
+        cb.checked = checked;
+        var id = parseInt(cb.dataset.id);
+        if (checked) _selectedIds.add(id); else _selectedIds.delete(id);
+    });
+    updateBulkBar();
+}
+
+function bulkSetActive(state) {
+    var ids = Array.from(_selectedIds);
+    if (!ids.length) return;
+    Promise.all(ids.map(function(id) {
+        return fetch('/api/posters/' + id, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ active: state }),
+        });
+    })).then(function() {
+        clearSelection();
+        loadPosters();
+        showAlert(ids.length + ' poster' + (ids.length !== 1 ? 's' : '') + ' ' + (state ? 'activated' : 'deactivated') + '.');
+    }).catch(function() { showAlert('Some updates failed.', 'danger'); });
+}
+
+function bulkDelete() {
+    var ids = Array.from(_selectedIds);
+    if (!ids.length) return;
+    if (!confirm('Delete ' + ids.length + ' poster' + (ids.length !== 1 ? 's' : '') + '? This cannot be undone.')) return;
+    Promise.all(ids.map(function(id) {
+        return fetch('/api/posters/' + id, { method: 'DELETE' });
+    })).then(function() {
+        clearSelection();
+        loadPosters();
+        showAlert(ids.length + ' poster' + (ids.length !== 1 ? 's' : '') + ' deleted.');
+    }).catch(function() { showAlert('Some deletes failed.', 'danger'); });
 }
 
 // ── Edit modal ─────────────────────────────────────────────────────────────
@@ -215,14 +308,10 @@ function loadPosters() {
 function openEdit(id) {
     var p = postersById[id];
     if (!p) return;
-    document.getElementById('edit-id').value = p.id;
+    document.getElementById('edit-id').value    = p.id;
     document.getElementById('edit-preview').src = p.url;
-    document.getElementById('edit-above').value = p.title_above !== null ? (p.title_above || '') : '';
-    document.getElementById('edit-below').value = p.title_below !== null ? (p.title_below || '') : '';
-    document.getElementById('edit-above-hint').textContent =
-        p.title_above === null ? 'Currently using default: "' + (currentDefaults.default_title_above || '') + '"' : '';
-    document.getElementById('edit-below-hint').textContent =
-        p.title_below === null ? 'Currently using default: "' + (currentDefaults.default_title_below || '') + '"' : '';
+    document.getElementById('edit-above').value   = p.title_above !== null ? (p.title_above || '') : '';
+    document.getElementById('edit-below').value   = p.title_below !== null ? (p.title_below || '') : '';
     document.getElementById('edit-active').checked = p.active;
     editModal.show();
 }
@@ -235,7 +324,7 @@ function saveEdit() {
         body: JSON.stringify({
             title_above: document.getElementById('edit-above').value,
             title_below: document.getElementById('edit-below').value,
-            active: document.getElementById('edit-active').checked,
+            active:      document.getElementById('edit-active').checked,
         })
     })
     .then(function(r) { return r.json(); })
@@ -257,17 +346,13 @@ function confirmDelete() {
     if (!pendingDeleteId) return;
     var btn = document.getElementById('delete-confirm-btn');
     btn.disabled = true;
-    btn.textContent = 'Deleting…';
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i>Deleting…';
     fetch('/api/posters/' + pendingDeleteId, { method: 'DELETE' })
-        .then(function() {
-            deleteModal.hide();
-            loadPosters();
-            showAlert('Poster deleted.');
-        })
+        .then(function() { deleteModal.hide(); loadPosters(); showAlert('Poster deleted.'); })
         .catch(function() { showAlert('Failed to delete.', 'danger'); })
         .finally(function() {
             btn.disabled = false;
-            btn.textContent = 'Delete';
+            btn.innerHTML = 'Delete';
             pendingDeleteId = null;
         });
 }
@@ -279,10 +364,11 @@ document.getElementById('upload-form').addEventListener('submit', function(e) {
     var file = document.getElementById('file-input').files[0];
     if (!file) return;
     var btn = document.getElementById('upload-btn');
-    btn.disabled = true; btn.textContent = 'Uploading...';
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i>Uploading…';
 
     var fd = new FormData();
-    fd.append('file', file);
+    fd.append('file',        file);
     fd.append('title_above', document.getElementById('title-above').value);
     fd.append('title_below', document.getElementById('title-below').value);
 
@@ -290,16 +376,18 @@ document.getElementById('upload-form').addEventListener('submit', function(e) {
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data.error) { showAlert(data.error, 'danger'); return; }
-            showAlert('Poster uploaded successfully.');
+            showAlert('Poster uploaded.');
             document.getElementById('upload-form').reset();
-            updateUploadPlaceholders(currentDefaults);
             loadPosters();
         })
         .catch(function() { showAlert('Upload failed.', 'danger'); })
-        .finally(function() { btn.disabled = false; btn.textContent = 'Upload'; });
+        .finally(function() {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-upload me-1"></i>Upload';
+        });
 });
 
-loadDefaults();
+showSkeletons();
 loadPosters();
 </script>
 {% endblock %}
