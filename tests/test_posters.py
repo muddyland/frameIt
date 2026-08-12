@@ -5,7 +5,7 @@ import os
 
 import pytest
 
-from tests.conftest import upload_poster
+from tests.conftest import upload_poster, JPEG_BYTES
 
 
 class TestGetPosters:
@@ -78,7 +78,7 @@ class TestUploadPoster:
         assert len(new_files) == 1
 
     def test_optional_fields_default_to_none(self, client):
-        data = {'file': (io.BytesIO(b'FAKEJPEG'), 'bare.jpg')}
+        data = {'file': (io.BytesIO(JPEG_BYTES), 'bare.jpg')}
         resp = client.post('/api/posters/upload', data=data,
                            content_type='multipart/form-data')
         assert resp.status_code == 201

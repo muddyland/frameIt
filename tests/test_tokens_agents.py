@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from models import db, Frame
 from tests.conftest import checkin
 
 
@@ -96,14 +97,43 @@ class TestAgentRegister:
         assert resp.status_code == 200
         assert 'frame_id' in resp.get_json()
 
-    def test_different_ip_used_token_returns_401(self, client):
-        # A different machine cannot hijack an already-used token
+    def test_reregister_from_new_ip_follows_the_frame(self, client, app):
+        """A used token re-registers the same frame at a new address.
+
+        Re-registration is authorised by possession of the token, not by
+        remote_addr — that value is forgeable when the server is not behind a
+        trusted proxy, and binding to it meant a Pi whose DHCP lease changed
+        could never register again.
+        """
         token_val = client.post('/api/tokens').get_json()['token']
-        client.post('/api/agents/register',
-                    json={'token': token_val, 'hostname': 'pi', 'port': 5001})
+        first = client.post('/api/agents/register',
+                            json={'token': token_val, 'hostname': 'pi', 'port': 5001})
+        frame_id = first.get_json()['frame_id']
+
         resp = client.post('/api/agents/register',
                            json={'token': token_val, 'hostname': 'pi', 'port': 5001},
                            environ_base={'REMOTE_ADDR': '10.0.0.99'})
+        assert resp.status_code == 200
+        assert resp.get_json()['frame_id'] == frame_id
+
+        with app.app_context():
+            frame = db.session.get(Frame, frame_id)
+            assert frame.ip == '10.0.0.99'
+            assert frame.agent_url == 'http://10.0.0.99:5001'
+
+    def test_unknown_token_rejected(self, client):
+        resp = client.post('/api/agents/register',
+                           json={'token': 'a' * 64, 'hostname': 'pi', 'port': 5001})
+        assert resp.status_code == 401
+
+    def test_used_token_with_deleted_frame_rejected(self, client, app):
+        token_val = client.post('/api/tokens').get_json()['token']
+        frame_id = client.post('/api/agents/register',
+                               json={'token': token_val, 'hostname': 'pi', 'port': 5001},
+                               ).get_json()['frame_id']
+        client.delete(f'/api/frames/{frame_id}')
+        resp = client.post('/api/agents/register',
+                           json={'token': token_val, 'hostname': 'pi', 'port': 5001})
         assert resp.status_code == 401
 
     def test_register_creates_frame_if_not_exists(self, client):
@@ -165,9 +195,23 @@ class TestAgentProxy:
         mock_resp.headers = {'Content-Type': 'application/json'}
         mock_resp.iter_content = lambda chunk_size: [b'{"ok":true}']
 
-        with patch('main.http_requests.request', return_value=mock_resp) as mock_req:
+        mock_session = MagicMock()
+        mock_session.request.return_value = mock_resp
+
+        with patch('main._agent_session', return_value=mock_session):
             resp = client.get(f'/api/frames/{frame_id}/agent/health')
             assert resp.status_code == 200
-            assert mock_req.called
-            call_kwargs = mock_req.call_args
+            assert mock_session.request.called
+            call_kwargs = mock_session.request.call_args
             assert 'Bearer' in call_kwargs.kwargs.get('headers', {}).get('Authorization', '')
+
+    def test_proxy_rejects_unknown_subpath(self, client):
+        """The proxy only relays endpoints the agent actually implements."""
+        token_val = client.post('/api/tokens').get_json()['token']
+        frame_id = client.post('/api/agents/register',
+                               json={'token': token_val, 'hostname': 'pi', 'port': 5001},
+                               ).get_json()['frame_id']
+        resp = client.get(f'/api/frames/{frame_id}/agent/../../etc/passwd')
+        assert resp.status_code == 404
+        resp = client.post(f'/api/frames/{frame_id}/agent/system/services/sshd/stop')
+        assert resp.status_code == 404

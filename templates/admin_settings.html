@@ -166,6 +166,52 @@
 
 </div>
 
+<!-- Security -->
+<div class="mt-4">
+    <div class="card bg-secondary bg-opacity-10 border-secondary">
+        <div class="card-header border-secondary">
+            <h6 class="mb-0 text-white"><i class="fa-solid fa-shield-halved me-2 text-secondary"></i>Security</h6>
+            <div class="small text-secondary mt-1">
+                Strict modes are off after an upgrade so existing frames and agents keep working.
+                Turn them on once every device has picked up the new code.
+            </div>
+        </div>
+        <div class="card-body">
+            <div id="agent-readiness" class="alert alert-secondary py-2 px-3 small mb-3">
+                Checking agent status&hellip;
+            </div>
+
+            <div class="form-check form-switch mb-3">
+                <input class="form-check-input" type="checkbox" role="switch" id="s-strict-agent">
+                <label class="form-check-label" for="s-strict-agent">Require agent authentication</label>
+                <div class="form-text">
+                    Reject heartbeats that do not carry the agent's credential. Any frame still
+                    listed above will stop reporting in until its agent is updated.
+                </div>
+            </div>
+
+            <div class="form-check form-switch mb-3">
+                <input class="form-check-input" type="checkbox" role="switch" id="s-strict-frame">
+                <label class="form-check-label" for="s-strict-frame">Require frame tokens</label>
+                <div class="form-text">
+                    Reject content requests without the token issued at check-in. Reboot or send
+                    Refresh to every display first so they pick up a token — a display running the
+                    old page will go blank otherwise.
+                </div>
+            </div>
+
+            <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" role="switch" id="s-allow-bypass">
+                <label class="form-check-label" for="s-allow-bypass">Allow preview frames</label>
+                <div class="form-text">
+                    Lets any browser create a frame with <code>?bypass_install=1</code>. Useful for
+                    testing without a Pi; leave off otherwise.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Apply defaults to all frames -->
 <div class="mt-4">
     <div class="card bg-secondary bg-opacity-10 border-secondary">
@@ -257,6 +303,12 @@ function loadSettings() {
                 document.getElementById('s-refresh').value   = d.dashboard_refresh_seconds || 30;
                 document.getElementById('s-retention').value = d.log_retention_days || '';
 
+                // Security
+                document.getElementById('s-strict-agent').checked = !!d.strict_agent_auth;
+                document.getElementById('s-strict-frame').checked = !!d.strict_frame_auth;
+                document.getElementById('s-allow-bypass').checked = !!d.allow_bypass_frames;
+                loadAgentReadiness();
+
                 onModeChange();
                 if (d.default_content_mode === 'pinned' && d.default_pinned_type) {
                     document.getElementById('s-pinned-type').value = d.default_pinned_type;
@@ -304,6 +356,9 @@ function saveSettings() {
             trailer_weight_percent:      weightVal,
             dashboard_refresh_seconds:   refreshVal,
             log_retention_days:          retentionVal,
+            strict_agent_auth:           document.getElementById('s-strict-agent').checked,
+            strict_frame_auth:           document.getElementById('s-strict-frame').checked,
+            allow_bypass_frames:         document.getElementById('s-allow-bypass').checked,
         }),
     })
     .then(function(r) { return r.json(); })
@@ -322,6 +377,39 @@ function applyDefaults() {
             showAlert('Defaults applied to ' + d.updated + ' frame' + (d.updated !== 1 ? 's' : '') + '.');
         })
         .catch(function() { showAlert('Failed to apply defaults.', 'danger'); });
+}
+
+// Shows which agents have not yet moved to their own credential, so the
+// operator knows exactly what turning on strict mode would break.
+function loadAgentReadiness() {
+    var el = document.getElementById('agent-readiness');
+    if (!el) return;
+    fetch('/api/settings/agent-auth-readiness')
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (!d.total_agents) {
+                el.className = 'alert alert-secondary py-2 px-3 small mb-3';
+                el.textContent = 'No agents registered yet.';
+                return;
+            }
+            if (d.ready) {
+                el.className = 'alert alert-success py-2 px-3 small mb-3';
+                el.innerHTML = '<i class="fa-solid fa-circle-check me-1"></i>' +
+                    'All ' + d.total_agents + ' agent(s) are using their own credential. ' +
+                    'Safe to require agent authentication.';
+                return;
+            }
+            el.className = 'alert alert-warning py-2 px-3 small mb-3';
+            el.innerHTML = '<i class="fa-solid fa-triangle-exclamation me-1"></i>' +
+                d.legacy_agents.length + ' of ' + d.total_agents +
+                ' agent(s) still use the old registration token: ' +
+                d.legacy_agents.map(function(a) { return escHtml(a.name); }).join(', ') +
+                '. Run Agent Update on each from the Frames page first.';
+        })
+        .catch(function() {
+            el.className = 'alert alert-secondary py-2 px-3 small mb-3';
+            el.textContent = 'Could not check agent status.';
+        });
 }
 
 loadSettings();

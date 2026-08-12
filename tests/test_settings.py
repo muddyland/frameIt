@@ -1,5 +1,5 @@
 """Tests for the Settings API and default text resolution in /api/frames/<id>/next."""
-from tests.conftest import add_trailer, checkin, upload_poster
+from tests.conftest import add_trailer, checkin, upload_poster, JPEG_BYTES
 
 
 class TestSettingsAPI:
@@ -54,7 +54,7 @@ class TestDefaultTextResolution:
     def test_poster_with_no_custom_text_uses_default(self, client):
         # Upload with no title fields — they default to None in DB
         import io
-        data = {'file': (io.BytesIO(b'FAKE'), 'bare.jpg')}
+        data = {'file': (io.BytesIO(JPEG_BYTES), 'bare.jpg')}
         client.post('/api/posters/upload', data=data, content_type='multipart/form-data')
 
         client.patch('/api/settings', json={
@@ -95,7 +95,7 @@ class TestDefaultTextResolution:
 
     def test_changing_default_affects_all_posters_without_custom_text(self, client):
         import io
-        data = {'file': (io.BytesIO(b'FAKE'), 'bare2.jpg')}
+        data = {'file': (io.BytesIO(JPEG_BYTES), 'bare2.jpg')}
         client.post('/api/posters/upload', data=data, content_type='multipart/form-data')
 
         client.patch('/api/settings', json={

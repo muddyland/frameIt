@@ -148,10 +148,10 @@ function renderTrailerList(trailers) {
             ? '<button class="btn btn-sm btn-outline-secondary" title="Re-cache" onclick="clearCache(' + t.id + ')"><i class="fa-solid fa-rotate-right"></i></button>'
             : '';
         return '<div class="list-group-item bg-dark text-white border-secondary d-flex align-items-center gap-2">' +
-            '<img src="' + t.thumb_url + '" style="width:80px;height:60px;object-fit:cover;border-radius:4px;flex-shrink:0" alt="">' +
+            '<img src="' + escAttr(t.thumb_url) + '" style="width:80px;height:60px;object-fit:cover;border-radius:4px;flex-shrink:0" alt="">' +
             '<div class="flex-fill min-w-0">' +
-            '<div class="fw-semibold text-truncate">' + t.title + _cacheBadge(t) + '</div>' +
-            '<a href="https://youtu.be/' + t.youtube_id + '" target="_blank" class="text-secondary small">' + t.youtube_id + '</a>' +
+            '<div class="fw-semibold text-truncate">' + escHtml(t.title) + _cacheBadge(t) + '</div>' +
+            '<a href="https://youtu.be/' + escAttr(t.youtube_id) + '" target="_blank" rel="noopener noreferrer" class="text-secondary small">' + escHtml(t.youtube_id) + '</a>' +
             '</div>' +
             activeBadge +
             clearBtn +

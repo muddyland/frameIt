@@ -1,7 +1,16 @@
-Flask
-flask-cors
-Flask-SQLAlchemy
-gunicorn
-requests
-Werkzeug
+# Direct dependencies. Bounded to a major version so a rebuild months from now
+# cannot silently pull a breaking release; requirements.lock pins the exact
+# transitive set used for container builds.
+#
+# flask-cors was listed here but never imported — removed rather than left as a
+# permissive-CORS foot-gun waiting to be wired up.
+Flask~=3.1
+Flask-SQLAlchemy~=3.1
+Werkzeug~=3.1
+gunicorn~=26.0
+requests~=2.34
+
+# Deliberately unpinned: YouTube changes regularly break older releases, so
+# this one needs to track upstream. The scheduled CI job exists to catch a
+# breaking release before a frame does.
 yt-dlp

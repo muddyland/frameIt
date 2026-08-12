@@ -204,6 +204,14 @@
     (function () {
         var bypass = new URLSearchParams(window.location.search).get('bypass_install') === '1';
         var frameId = null;
+        // Issued at checkin. Sent on every frame API call so the server can
+        // tell a registered display from anything else that reaches the port.
+        var frameToken = '';
+
+        function frameUrl(path) {
+            return '/api/frames/' + frameId + path +
+                   (frameToken ? (path.indexOf('?') === -1 ? '?' : '&') + 't=' + encodeURIComponent(frameToken) : '');
+        }
 
         function setConnStatus(ok) {
             var dot = document.getElementById('conn-dot');
@@ -226,7 +234,20 @@
 
         window.onYouTubePlayerAPIReady = function () { /* player created on demand */ };
 
+        // A failed video fires onerror AND rejects play(), so an unguarded
+        // handler advanced the rotation twice — skipping an item and writing
+        // two history rows.
+        function once(fn) {
+            var called = false;
+            return function () {
+                if (called) return;
+                called = true;
+                return fn.apply(this, arguments);
+            };
+        }
+
         function loadLocalVideo(url, onEnd) {
+            var guarded = once(onEnd);
             var container = document.getElementById('trailer-container');
             container.innerHTML = '';
             var video = document.createElement('video');
@@ -235,13 +256,14 @@
             video.muted = true;
             video.playsInline = true;
             video.style.cssText = 'width:100%;height:100%;object-fit:contain;';
-            video.onended = onEnd;
-            video.onerror = onEnd;
+            video.onended = guarded;
+            video.onerror = guarded;
             container.appendChild(video);
-            video.play().catch(onEnd);
+            video.play().catch(guarded);
         }
 
         function loadYouTube(videoId, onEnd) {
+            var guarded = once(onEnd);
             var container = document.getElementById('trailer-container');
             container.innerHTML = '';
             var div = document.createElement('div');
@@ -254,10 +276,11 @@
                 events: {
                     onReady: function (e) { e.target.mute(); e.target.playVideo(); },
                     onStateChange: function (e) {
-                        if (e.data === YT.PlayerState.ENDED || e.data === YT.PlayerState.PAUSED) {
-                            onEnd();
-                        }
-                    }
+                        // PAUSED used to advance the rotation too, so any
+                        // buffering stall cut the trailer short.
+                        if (e.data === YT.PlayerState.ENDED) guarded();
+                    },
+                    onError: function () { guarded(); }
                 }
             });
         }
@@ -356,7 +379,7 @@
         // ── Remote commands (next / refresh) ──────────────────────────
         function pollSignal() {
             if (!frameId) { setTimeout(pollSignal, 5000); return; }
-            fetch('/api/frames/' + frameId + '/signal')
+            fetch(frameUrl('/signal'))
                 .then(function(r) { return r.json(); })
                 .then(function(d) {
                     setConnStatus(true);
@@ -374,7 +397,7 @@
         // ── Display-off awareness ─────────────────────────────────────
         function pollDisplayStatus() {
             if (!frameId) { setTimeout(pollDisplayStatus, 30000); return; }
-            fetch('/api/frames/' + frameId + '/agent/display')
+            fetch(frameUrl('/display-state'))
                 .then(function(r) { return r.json(); })
                 .then(function(d) {
                     var wasOff = displayOff;
@@ -401,7 +424,7 @@
         // ── Main fetch loop ───────────────────────────────────────────
         function fetchNext() {
             if (displayOff) return;
-            fetch('/api/frames/' + frameId + '/next')
+            fetch(frameUrl('/next'))
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
                     setConnStatus(true);
@@ -455,6 +478,7 @@
                 // Registered — hide the install screen if it was showing and start.
                 hideUnregistered();
                 frameId = String(data.frame_id);
+                frameToken = data.frame_token || '';
                 pollDisplayStatus();
                 pollSignal();
                 fetchNext();

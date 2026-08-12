@@ -79,6 +79,7 @@ AGENT_VENV="$AGENT_DIR/venv"
 KIOSK_SCRIPT="/usr/local/bin/frameit-kiosk.sh"
 ENV_FILE="/etc/frameit-agent.env"
 SUDOERS_FILE="/etc/sudoers.d/frameit-agent"
+WIFI_HELPER="/usr/local/sbin/frameit-wifi-connect"
 AGENT_SERVICE="/etc/systemd/system/frameit-agent.service"
 UI_SERVICE="/etc/systemd/system/frameit-ui.service"
 
@@ -104,6 +105,43 @@ if $SUDO systemctl is-enabled dhcpcd &>/dev/null; then
 fi
 $SUDO systemctl enable NetworkManager --now || true
 
+# ── WiFi helper ───────────────────────────────────────────────────────────────
+# A fixed-arity wrapper so sudo can be granted on one known command. The
+# previous rule ended in a wildcard after `nmcli dev wifi connect`, which
+# matches any trailing arguments. The passphrase arrives on stdin so it never
+# appears in the process table.
+echo "==> Installing WiFi helper..."
+
+{% raw %}$SUDO tee "$WIFI_HELPER" > /dev/null <<'WIFIEOF'
+#!/bin/bash
+# FrameIT — connect to a wireless network.
+# Usage: frameit-wifi-connect <ssid>   (passphrase read from stdin, may be empty)
+set -euo pipefail
+
+SSID="${1:-}"
+if [[ -z "$SSID" ]]; then
+    echo "usage: $0 <ssid>  (passphrase on stdin)" >&2
+    exit 2
+fi
+if [[ ${#SSID} -gt 32 ]]; then
+    echo "SSID exceeds 32 characters" >&2
+    exit 2
+fi
+
+PSK=""
+if [[ ! -t 0 ]]; then
+    IFS= read -r PSK || true
+fi
+
+if [[ -n "$PSK" ]]; then
+    exec nmcli dev wifi connect "$SSID" password "$PSK"
+fi
+exec nmcli dev wifi connect "$SSID"
+WIFIEOF{% endraw %}
+
+$SUDO chown root:root "$WIFI_HELPER"
+$SUDO chmod 755 "$WIFI_HELPER"
+
 # ── Sudoers ───────────────────────────────────────────────────────────────────
 echo "==> Writing sudoers rules for '$KIOSK_USER'..."
 
@@ -121,8 +159,7 @@ $KIOSK_USER ALL=(ALL) NOPASSWD: /usr/bin/systemctl start frameit-ui
 $KIOSK_USER ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop frameit-ui
 $KIOSK_USER ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart frameit-ui
 $KIOSK_USER ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart frameit-agent
-$KIOSK_USER ALL=(ALL) NOPASSWD: /usr/bin/hostnamectl set-hostname *
-$KIOSK_USER ALL=(ALL) NOPASSWD: /usr/bin/nmcli dev wifi connect *
+$KIOSK_USER ALL=(ALL) NOPASSWD: $WIFI_HELPER *
 EOF
 
 $SUDO chmod 440 "$SUDOERS_FILE"

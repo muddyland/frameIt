@@ -40,6 +40,11 @@ class Trailer(db.Model):
     created_at = db.Column(db.DateTime, default=utcnow)
     cache_status = db.Column(db.String(12), nullable=True)    # pending/downloading/ready/error
     cached_filename = db.Column(db.String(24), nullable=True) # '{youtube_id}.mp4' when ready
+    # Download retry bookkeeping — an 'error' status is retried with backoff
+    # rather than being permanently sticky.
+    download_attempts = db.Column(db.Integer, nullable=False, default=0)
+    last_attempt_at = db.Column(db.DateTime, nullable=True)
+    last_error = db.Column(db.String(255), nullable=True)
 
     def to_dict(self):
         return {
@@ -53,6 +58,8 @@ class Trailer(db.Model):
             'thumb_url': (f'/videos/{self.youtube_id}.jpg'
                           if self.cache_status == 'ready'
                           else f'https://img.youtube.com/vi/{self.youtube_id}/mqdefault.jpg'),
+            'download_attempts': self.download_attempts or 0,
+            'last_error': self.last_error,
         }
 
 
@@ -68,11 +75,21 @@ class Frame(db.Model):
     pinned_id = db.Column(db.Integer, nullable=True)
     # Agent fields
     agent_url = db.Column(db.String(255), nullable=True)
+    # Legacy credential: the registration token, reused as the agent bearer.
+    # Kept for agents that have not yet updated. New registrations issue an
+    # agent_secret instead and leave this untouched.
     agent_token = db.Column(db.String(64), nullable=True)
+    # Per-frame credential issued at registration, independent of the
+    # one-time registration token. Preferred over agent_token when set.
+    agent_secret = db.Column(db.String(64), nullable=True)
     agent_last_seen = db.Column(db.DateTime, nullable=True)
     agent_version = db.Column(db.String(12), nullable=True)
     pending_command = db.Column(db.String(20), nullable=True)
     logs = db.relationship('FrameLog', backref='frame', lazy=True)
+
+    def credential(self):
+        """The bearer token this frame's agent currently accepts."""
+        return self.agent_secret or self.agent_token
 
     def to_dict(self):
         return {
@@ -88,6 +105,7 @@ class Frame(db.Model):
             'agent_url': self.agent_url,
             'agent_last_seen': self.agent_last_seen.isoformat() if self.agent_last_seen else None,
             'agent_version': self.agent_version,
+            'agent_auth': 'secret' if self.agent_secret else ('legacy' if self.agent_token else None),
         }
 
 
@@ -97,6 +115,12 @@ class FrameLog(db.Model):
     content_type = db.Column(db.String(10), nullable=False)  # 'poster' or 'trailer'
     content_id = db.Column(db.Integer, nullable=False)
     shown_at = db.Column(db.DateTime, default=utcnow)
+
+    # The hot path is "most recent log row for this frame" — without this the
+    # lookup is a full scan over a table that gains a row per frame per interval.
+    __table_args__ = (
+        db.Index('ix_framelog_frame_shown', 'frame_id', 'shown_at'),
+    )
 
 
 class RegistrationToken(db.Model):
@@ -133,6 +157,12 @@ class Settings(db.Model):
     # Cycling poster text options (newline-separated; overrides single-value fields when set)
     default_title_above_options = db.Column(db.Text, nullable=True)
     default_title_below_options = db.Column(db.Text, nullable=True)
+    # Security posture. All three default to the permissive setting on an
+    # existing database so an upgrade never orphans a running frame; flip them
+    # on once every agent and kiosk has picked up the new code.
+    strict_agent_auth = db.Column(db.Boolean, nullable=False, default=False)
+    strict_frame_auth = db.Column(db.Boolean, nullable=False, default=False)
+    allow_bypass_frames = db.Column(db.Boolean, nullable=False, default=False)
 
     def to_dict(self):
         return {
@@ -149,4 +179,7 @@ class Settings(db.Model):
             'log_retention_days': self.log_retention_days,
             'default_title_above_options': self.default_title_above_options or '',
             'default_title_below_options': self.default_title_below_options or '',
+            'strict_agent_auth': bool(self.strict_agent_auth),
+            'strict_frame_auth': bool(self.strict_frame_auth),
+            'allow_bypass_frames': bool(self.allow_bypass_frames),
         }

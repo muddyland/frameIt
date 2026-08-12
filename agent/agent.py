@@ -11,6 +11,7 @@ Environment variables:
 """
 
 import hashlib
+import hmac
 import os
 import pwd
 import socket
@@ -31,7 +32,14 @@ from flask import Flask, Response, jsonify, request
 FRAMEIT_SERVER = os.environ.get('FRAMEIT_SERVER', '').rstrip('/')
 FRAMEIT_TOKEN = os.environ.get('FRAMEIT_TOKEN', '')
 AGENT_PORT = int(os.environ.get('AGENT_PORT', 5001))
+AGENT_BIND = os.environ.get('AGENT_BIND', '0.0.0.0')
 KIOSK_USER = os.environ.get('KIOSK_USER', 'pi')
+AGENT_DIR = os.path.dirname(os.path.abspath(__file__))
+SECRET_PATH = os.environ.get('AGENT_SECRET_PATH', os.path.join(AGENT_DIR, 'agent.secret'))
+# Wrapper installed by the installer so sudo can be granted on a fixed command
+# instead of `nmcli dev wifi connect *`, whose trailing wildcard matches any
+# additional arguments.
+WIFI_HELPER = '/usr/local/sbin/frameit-wifi-connect'
 
 app = Flask(__name__)
 
@@ -47,6 +55,58 @@ def _compute_version():
         return 'unknown'
 
 AGENT_VERSION = _compute_version()
+
+# ---------------------------------------------------------------------------
+# Credentials
+#
+# The registration token used to double as the permanent bearer credential.
+# The server now issues a per-frame secret at registration; the token is kept
+# only as a fallback so an agent can still authenticate against a server that
+# has not been upgraded yet.
+# ---------------------------------------------------------------------------
+
+_agent_secret = None
+_secret_lock = threading.Lock()
+
+
+def _load_secret():
+    """Read the persisted agent secret, if one was issued previously."""
+    global _agent_secret
+    try:
+        with open(SECRET_PATH, encoding='utf-8') as fh:
+            value = fh.read().strip()
+        if value:
+            _agent_secret = value
+            print('[agent] Loaded stored agent secret')
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        print(f'[agent] Could not read {SECRET_PATH}: {exc}')
+
+
+def _store_secret(value):
+    """Adopt a newly issued secret and persist it 0600.
+
+    Adoption happens even if the write fails — the running process must agree
+    with the server about the current credential either way, and registration
+    reissues one on the next restart.
+    """
+    global _agent_secret
+    with _secret_lock:
+        _agent_secret = value
+    try:
+        fd = os.open(SECRET_PATH, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, 'w', encoding='utf-8') as fh:
+            fh.write(value)
+    except OSError as exc:
+        print(f'[agent] WARNING: could not persist agent secret: {exc}')
+
+
+def _accepted_credentials():
+    """Every bearer value this agent will currently accept."""
+    with _secret_lock:
+        current = _agent_secret
+    return [c for c in (current, FRAMEIT_TOKEN) if c]
 
 # ---------------------------------------------------------------------------
 # Input sanitization
@@ -66,7 +126,16 @@ def require_token(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
         auth = request.headers.get('Authorization', '')
-        if not auth.startswith('Bearer ') or auth[7:] != FRAMEIT_TOKEN:
+        if not auth.startswith('Bearer '):
+            return jsonify({'error': 'Unauthorized'}), 401
+        offered = auth[7:]
+        # compare_digest on every candidate, without short-circuiting, so the
+        # response time does not leak how much of the token matched.
+        matched = False
+        for candidate in _accepted_credentials():
+            if hmac.compare_digest(offered, candidate):
+                matched = True
+        if not matched:
             return jsonify({'error': 'Unauthorized'}), 401
         return f(*args, **kwargs)
     return wrapper
@@ -130,14 +199,40 @@ def agent_update():
         req_path   = os.path.join(agent_dir, 'requirements.txt')
         pip        = os.path.join(os.path.dirname(sys.executable), 'pip')
         try:
+            # Ask the server what it expects the new agent to hash to, and
+            # verify the download before writing it over ourselves. Without
+            # this, anything that can answer for FRAMEIT_SERVER — trivial on a
+            # plain-http LAN — gets persistent code execution on the Pi.
+            expected = requests.get(f'{FRAMEIT_SERVER}/api/agent/version', timeout=15)
+            expected.raise_for_status()
+            expected_version = (expected.json() or {}).get('version')
+            if not expected_version or expected_version == 'unknown':
+                print('[agent] Update aborted: server did not publish an agent version')
+                return
+
             r = requests.get(f'{FRAMEIT_SERVER}/agent.py', timeout=30)
             r.raise_for_status()
-            with open(agent_path, 'w', encoding='utf-8') as f:
-                f.write(r.text)
-            r = requests.get(f'{FRAMEIT_SERVER}/agent-requirements.txt', timeout=30)
-            r.raise_for_status()
+            payload = r.content
+            actual_version = hashlib.sha256(payload).hexdigest()[:12]
+            if not hmac.compare_digest(actual_version, expected_version):
+                print(f'[agent] Update aborted: hash mismatch '
+                      f'(expected {expected_version}, got {actual_version})')
+                return
+            if actual_version == AGENT_VERSION:
+                print('[agent] Already up to date')
+                return
+
+            r_req = requests.get(f'{FRAMEIT_SERVER}/agent-requirements.txt', timeout=30)
+            r_req.raise_for_status()
+
+            # Write to a sibling file and replace atomically, so an interrupted
+            # update cannot leave a half-written agent behind.
+            tmp_path = agent_path + '.new'
+            with open(tmp_path, 'wb') as f:
+                f.write(payload)
+            os.replace(tmp_path, agent_path)
             with open(req_path, 'w', encoding='utf-8') as f:
-                f.write(r.text)
+                f.write(r_req.text)
             subprocess.run([pip, 'install', '--quiet', '-r', req_path], check=False)
         except Exception as e:
             print(f'[agent] Update download failed: {e}')
@@ -268,12 +363,28 @@ def wifi_connect():
         return jsonify({'error': 'ssid is required'}), 400
     if not ssid.isprintable():
         return jsonify({'error': 'Invalid SSID'}), 400
-    cmd = ['sudo', 'nmcli', 'dev', 'wifi', 'connect', ssid]
-    if password:
-        cmd += ['password', password]
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+    # Prefer the fixed-arity helper the installer writes. The old sudoers rule
+    # ended in a wildcard, which matches any trailing nmcli arguments, not
+    # just an SSID and password. The helper also takes the passphrase on
+    # stdin, keeping it out of the process table.
+    if os.path.exists(WIFI_HELPER):
+        cmd = ['sudo', WIFI_HELPER, ssid]
+        stdin_data = f'{password}\n'
+    else:
+        # Agent updated ahead of the installer — fall back to the old path.
+        cmd = ['sudo', 'nmcli', 'dev', 'wifi', 'connect', ssid]
+        if password:
+            cmd += ['password', password]
+        stdin_data = None
+
+    try:
+        r = subprocess.run(cmd, input=stdin_data, capture_output=True,
+                           text=True, timeout=45)
+    except subprocess.TimeoutExpired:
+        return jsonify({'error': 'Timed out connecting to the network.'}), 504
     if r.returncode != 0:
-        return jsonify({'error': r.stderr}), 500
+        return jsonify({'error': (r.stderr or r.stdout or 'Connection failed').strip()}), 500
     return jsonify({'ok': True, 'output': r.stdout})
 
 # ---------------------------------------------------------------------------
@@ -327,22 +438,42 @@ def display_off():
 def register():
     """POSTs to the FrameIT server to register this agent. Retries indefinitely."""
     global _frame_id
+    backoff = 15
     while True:
         try:
             resp = requests.post(
                 f'{FRAMEIT_SERVER}/api/agents/register',
-                json={'token': FRAMEIT_TOKEN, 'hostname': socket.gethostname(), 'port': AGENT_PORT},
+                json={
+                    'token': FRAMEIT_TOKEN,
+                    'hostname': socket.gethostname(),
+                    'port': AGENT_PORT,
+                    # Tells an upgraded server to issue a dedicated credential.
+                    # Older servers ignore this and keep using the token.
+                    'supports_secret': True,
+                },
                 timeout=10,
             )
             if resp.status_code == 200:
                 data = resp.json()
                 _frame_id = data.get('frame_id')
-                print(f'[agent] Registered as frame #{_frame_id}')
+                issued = data.get('agent_secret')
+                if issued:
+                    _store_secret(issued)
+                    print(f'[agent] Registered as frame #{_frame_id} with a dedicated credential')
+                else:
+                    print(f'[agent] Registered as frame #{_frame_id} (server issued no secret; '
+                          f'falling back to the registration token)')
                 return
-            print(f'[agent] Registration failed ({resp.status_code}): {resp.text}')
+            print(f'[agent] Registration failed ({resp.status_code}): {resp.text[:200]}')
         except Exception as e:
             print(f'[agent] Registration error: {e}')
-        time.sleep(15)
+        time.sleep(backoff)
+        backoff = min(backoff * 2, 300)
+
+
+def _auth_headers():
+    creds = _accepted_credentials()
+    return {'Authorization': f'Bearer {creds[0]}'} if creds else {}
 
 
 def heartbeat_loop():
@@ -352,11 +483,17 @@ def heartbeat_loop():
         if not _frame_id:
             continue
         try:
-            requests.post(
+            resp = requests.post(
                 f'{FRAMEIT_SERVER}/api/agents/{_frame_id}/heartbeat',
                 json={'version': AGENT_VERSION},
+                headers=_auth_headers(),
                 timeout=5,
             )
+            # The server rotates the secret on every registration, so a 401
+            # means our copy is stale — re-register rather than going silent.
+            if resp.status_code == 401:
+                print('[agent] Heartbeat rejected; re-registering')
+                register()
         except Exception:
             pass
 
@@ -366,7 +503,9 @@ if __name__ == '__main__':
         print('[agent] FRAMEIT_SERVER and FRAMEIT_TOKEN must be set.')
         raise SystemExit(1)
 
+    _load_secret()
+
     threading.Thread(target=register, daemon=True).start()
     threading.Thread(target=heartbeat_loop, daemon=True).start()
 
-    app.run(host='0.0.0.0', port=AGENT_PORT)
+    app.run(host=AGENT_BIND, port=AGENT_PORT, threaded=True)

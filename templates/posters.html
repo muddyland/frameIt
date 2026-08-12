@@ -2,7 +2,7 @@
 {% block title %}Posters{% endblock %}
 
 {% block head %}
-<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js" integrity="sha384-BSxuMLxX+FCbTdYec3TbXlnMGEEM2QXTFdtDaveen71o+jswm2J36+xFqp8k4VHM" crossorigin="anonymous"></script>
 <style>
 @keyframes skel-pulse { 0%,100%{opacity:.35} 50%{opacity:.65} }
 .skel { background:#2a2d31!important; border-radius:4px; animation:skel-pulse 1.4s ease-in-out infinite; }
@@ -155,7 +155,7 @@ function showSkeletons() {
 
 function titleDisplay(custom) {
     if (custom !== null && custom !== undefined) {
-        return '<span class="text-light">' + (custom || '&nbsp;') + '</span>';
+        return '<span class="text-light">' + (escHtml(custom) || '&nbsp;') + '</span>';
     }
     return '<span class="text-secondary fst-italic">↩ default</span>';
 }
@@ -174,7 +174,7 @@ function renderPosterGrid(posters) {
         return '<div class="col-6 col-sm-4 col-md-3 col-lg-2 poster-card-wrap" id="card-' + p.id + '">' +
             '<input type="checkbox" class="poster-cb" data-id="' + p.id + '">' +
             '<div class="card bg-dark border-secondary h-100">' +
-            '<img src="' + p.url + '" class="card-img-top" style="height:200px;object-fit:cover;cursor:grab" alt="">' +
+            '<img src="' + escAttr(p.url) + '" class="card-img-top" style="height:200px;object-fit:cover;cursor:grab" alt="">' +
             '<div class="card-body p-2">' +
             '<div class="small text-truncate mb-1">' + titleDisplay(p.title_above) + '</div>' +
             '<div class="small text-truncate mb-2">' + titleDisplay(p.title_below) + '</div>' +

@@ -1,0 +1,32 @@
+# Keep build context minimal and keep local state out of the image.
+.git
+.gitignore
+.gitlab-ci.yml
+.github
+.venv
+venv
+__pycache__
+**/__pycache__
+*.py[cod]
+.pytest_cache
+.coverage
+coverage.xml
+htmlcov
+
+# Local runtime state — must never be baked in. config/ holds secret.key.
+config/
+data/
+images/
+videos/
+*.db
+*.db-wal
+*.db-shm
+*.key
+
+# Tests and docs are not needed at runtime
+tests/
+agent/tests/
+conftest.py
+README.md
+LICENSE
+*.md

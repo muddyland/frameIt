@@ -119,13 +119,8 @@ function pill(icon, text, title) {
         '<span>' + text + '</span></span>';
 }
 
-function escHtml(s) {
-    return String(s)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
-}
+// escHtml() / escAttr() are defined in admin_main.html so every admin page
+// shares one implementation.
 
 function skipContent(frameId) {
     var btn = document.getElementById('skip-btn-' + frameId);
