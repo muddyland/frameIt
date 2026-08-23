@@ -994,6 +994,7 @@ def frame_checkin():
         'frame_token': frame_token(frame.id),
         'interval_seconds': frame.interval_seconds,
         'rotation': frame.rotation,
+        'signal_poll_seconds': get_settings().signal_poll_seconds,
     })
 
 
@@ -1081,6 +1082,7 @@ def frame_next(frame_id):
             'type': 'empty',
             'rotation': frame.rotation,
             'interval_seconds': frame.interval_seconds,
+            'signal_poll_seconds': settings.signal_poll_seconds,
         })
 
     content_type, item = content
@@ -1098,7 +1100,8 @@ def frame_next(frame_id):
         db.session.add(FrameLog(frame_id=frame.id, content_type=content_type, content_id=item.id))
         db.session.commit()
 
-    base = {'rotation': frame.rotation, 'interval_seconds': frame.interval_seconds}
+    base = {'rotation': frame.rotation, 'interval_seconds': frame.interval_seconds,
+            'signal_poll_seconds': settings.signal_poll_seconds}
     if content_type == 'poster':
         title_above = (item.title_above if item.title_above is not None
                        else _pick_banner(settings.default_title_above_options,
@@ -1808,6 +1811,9 @@ def update_settings():  # pylint: disable=too-many-branches
     if 'dashboard_refresh_seconds' in body:
         s.dashboard_refresh_seconds = want_int(body, 'dashboard_refresh_seconds',
                                                minimum=5, maximum=3600, clamp=True)
+    if 'signal_poll_seconds' in body:
+        s.signal_poll_seconds = want_int(body, 'signal_poll_seconds',
+                                         minimum=1, maximum=60, clamp=True)
     if 'log_retention_days' in body:
         s.log_retention_days = want_int(body, 'log_retention_days',
                                         minimum=1, maximum=3650, allow_none=True, clamp=True)
@@ -2001,6 +2007,7 @@ _MIGRATIONS = [
     ('settings', 'pool_order',                 "VARCHAR(10) NOT NULL DEFAULT 'random'"),
     ('settings', 'trailer_weight_percent',     'INTEGER'),
     ('settings', 'dashboard_refresh_seconds',  'INTEGER NOT NULL DEFAULT 30'),
+    ('settings', 'signal_poll_seconds',        'INTEGER NOT NULL DEFAULT 1'),
     ('settings', 'log_retention_days',         'INTEGER'),
     ('settings', 'default_title_above_options','TEXT'),
     ('settings', 'default_title_below_options','TEXT'),

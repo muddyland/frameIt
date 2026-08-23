@@ -151,6 +151,20 @@
                     </div>
                     <div class="form-text">How often the admin dashboard reloads frame status.</div>
                 </div>
+                <div class="mb-4">
+                    <label class="form-label">Frame Command Poll</label>
+                    <div class="input-group">
+                        <input type="number" class="form-control bg-dark text-white border-secondary"
+                               id="s-signal-poll" min="1" max="60" step="1">
+                        <span class="input-group-text bg-dark text-secondary border-secondary">seconds</span>
+                    </div>
+                    <div class="form-text">
+                        How often each frame asks whether a command is waiting. This sets how
+                        quickly a change reaches the screen — Next, Refresh, and now-playing
+                        artwork all arrive within this window. Raise it if a large fleet makes
+                        the request rate a problem.
+                    </div>
+                </div>
                 <div class="mb-0">
                     <label class="form-label">Activity Log Retention</label>
                     <div class="input-group">
@@ -301,6 +315,7 @@ function loadSettings() {
 
                 // System
                 document.getElementById('s-refresh').value   = d.dashboard_refresh_seconds || 30;
+                document.getElementById('s-signal-poll').value = d.signal_poll_seconds || 1;
                 document.getElementById('s-retention').value = d.log_retention_days || '';
 
                 // Security
@@ -337,6 +352,7 @@ function saveSettings() {
     var hasWeight   = document.getElementById('s-weight-custom').checked;
     var weightVal   = hasWeight ? (parseInt(document.getElementById('s-trailer-weight').value) || 0) : null;
     var refreshVal  = parseInt(document.getElementById('s-refresh').value) || 30;
+    var signalVal   = parseInt(document.getElementById('s-signal-poll').value) || 1;
     var retentionRaw = document.getElementById('s-retention').value.trim();
     var retentionVal = retentionRaw ? (parseInt(retentionRaw) || null) : null;
     var order = document.querySelector('input[name="pool-order"]:checked');
@@ -355,6 +371,7 @@ function saveSettings() {
             pool_order:                  order ? order.value : 'random',
             trailer_weight_percent:      weightVal,
             dashboard_refresh_seconds:   refreshVal,
+            signal_poll_seconds:         signalVal,
             log_retention_days:          retentionVal,
             strict_agent_auth:           document.getElementById('s-strict-agent').checked,
             strict_frame_auth:           document.getElementById('s-strict-frame').checked,

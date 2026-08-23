@@ -123,3 +123,49 @@ class TestDefaultTextResolution:
                 assert resp['title'] == 'My Trailer'
                 return
         # If we never got a trailer (unlikely with 20 tries), that's also fine
+
+
+class TestSignalPollSetting:
+    """How often a frame asks for commands — what decides how fast the screen
+    reacts to anything changed elsewhere."""
+
+    def test_defaults_to_one_second(self, client):
+        assert client.get('/api/settings').get_json()['signal_poll_seconds'] == 1
+
+    def test_patch_changes_it(self, client):
+        resp = client.patch('/api/settings', json={'signal_poll_seconds': 5},
+                            content_type='application/json')
+        assert resp.status_code == 200
+        assert resp.get_json()['signal_poll_seconds'] == 5
+
+    def test_below_minimum_clamps_rather_than_rejects(self, client):
+        body = client.patch('/api/settings', json={'signal_poll_seconds': 0},
+                            content_type='application/json').get_json()
+        assert body['signal_poll_seconds'] == 1
+
+    def test_above_maximum_clamps(self, client):
+        body = client.patch('/api/settings', json={'signal_poll_seconds': 9999},
+                            content_type='application/json').get_json()
+        assert body['signal_poll_seconds'] == 60
+
+    def test_wrong_type_is_a_400(self, client):
+        resp = client.patch('/api/settings', json={'signal_poll_seconds': 'fast'},
+                            content_type='application/json')
+        assert resp.status_code == 400
+
+    def test_checkin_tells_a_new_frame_the_cadence(self, client):
+        assert checkin(client)['signal_poll_seconds'] == 1
+
+    def test_next_carries_it_so_a_change_lands_without_a_reload(self, client):
+        upload_poster(client)
+        frame_id = checkin(client)['frame_id']
+        client.patch('/api/settings', json={'signal_poll_seconds': 3},
+                     content_type='application/json')
+        data = client.get(f'/api/frames/{frame_id}/next').get_json()
+        assert data['signal_poll_seconds'] == 3
+
+    def test_empty_frame_response_carries_it_too(self, client):
+        frame_id = checkin(client)['frame_id']
+        data = client.get(f'/api/frames/{frame_id}/next').get_json()
+        assert data['type'] == 'empty'
+        assert data['signal_poll_seconds'] == 1

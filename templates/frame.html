@@ -377,12 +377,26 @@
         }
 
         // ── Remote commands (next / refresh) ──────────────────────────
+        // How fast this loop runs is what decides how quickly a change made
+        // elsewhere reaches the screen. The server owns the value so it can be
+        // tuned per deployment; applySettings() picks up changes without a
+        // reload. Errors back off so an unreachable server is not hammered.
+        var signalPollMs = 1000;
+        var _signalErrs = 0;
+
+        function applySettings(d) {
+            if (d && d.signal_poll_seconds) {
+                signalPollMs = Math.max(1, d.signal_poll_seconds) * 1000;
+            }
+        }
+
         function pollSignal() {
-            if (!frameId) { setTimeout(pollSignal, 5000); return; }
+            if (!frameId) { setTimeout(pollSignal, signalPollMs); return; }
             fetch(frameUrl('/signal'))
                 .then(function(r) { return r.json(); })
                 .then(function(d) {
                     setConnStatus(true);
+                    _signalErrs = 0;
                     if (d.command === 'next') {
                         clearTimer();
                         fetchNext();
@@ -390,8 +404,13 @@
                         location.reload();
                     }
                 })
-                .catch(function() { setConnStatus(false); })
-                .finally(function() { setTimeout(pollSignal, 5000); });
+                .catch(function() { setConnStatus(false); _signalErrs++; })
+                .finally(function() {
+                    var delay = _signalErrs
+                        ? Math.min(signalPollMs * Math.pow(2, Math.min(_signalErrs, 5)), 30000)
+                        : signalPollMs;
+                    setTimeout(pollSignal, delay);
+                });
         }
 
         // ── Display-off awareness ─────────────────────────────────────
@@ -429,6 +448,7 @@
                 .then(function (data) {
                     setConnStatus(true);
                     _errBackoff = 0;
+                    applySettings(data);
                     applyRotation(data.rotation || 0);
                     if (data.type === 'poster') {
                         showPoster(data);
@@ -479,6 +499,7 @@
                 hideUnregistered();
                 frameId = String(data.frame_id);
                 frameToken = data.frame_token || '';
+                applySettings(data);
                 pollDisplayStatus();
                 pollSignal();
                 fetchNext();

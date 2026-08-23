@@ -4,7 +4,11 @@ PartOf=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart={{ install_loc }}/.venv/bin/python -m gunicorn -w 2 -b :5000 main:app
+# Threaded workers, matching the Dockerfile and README: a proxied
+# `apt upgrade` streams for minutes and would otherwise hold a sync
+# worker, stalling every frame for the duration.
+ExecStart={{ install_loc }}/.venv/bin/python -m gunicorn -k gthread -w 2 --threads 8 \
+    --timeout 600 --graceful-timeout 30 -b :5000 main:app
 Restart=always
 Environment=PYTHONUNBUFFERED=1
 WorkingDirectory={{ install_loc }}

@@ -152,6 +152,11 @@ class Settings(db.Model):
     trailer_weight_percent = db.Column(db.Integer, nullable=True)                # null = count-based
     # Dashboard
     dashboard_refresh_seconds = db.Column(db.Integer, nullable=False, default=30)
+    # How often a frame asks whether a command is waiting. This is what decides
+    # how quickly a change made elsewhere — pinning now-playing artwork, say —
+    # actually reaches the screen, so it is deliberately short. Raise it if a
+    # large fleet makes the request rate a problem.
+    signal_poll_seconds = db.Column(db.Integer, nullable=False, default=1)
     # Maintenance
     log_retention_days = db.Column(db.Integer, nullable=True)                    # null = keep forever
     # Cycling poster text options (newline-separated; overrides single-value fields when set)
@@ -176,6 +181,7 @@ class Settings(db.Model):
             'pool_order': self.pool_order or 'random',
             'trailer_weight_percent': self.trailer_weight_percent,
             'dashboard_refresh_seconds': self.dashboard_refresh_seconds or 30,
+            'signal_poll_seconds': self.signal_poll_seconds or 1,
             'log_retention_days': self.log_retention_days,
             'default_title_above_options': self.default_title_above_options or '',
             'default_title_below_options': self.default_title_below_options or '',

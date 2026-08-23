@@ -207,6 +207,14 @@ Rotation is configured per-frame from the admin panel (0°, 90°, 180°, 270°).
 | Trailers | Add YouTube trailers by URL or video ID |
 | Frames   | Register new frames (generate token → copy install command), set a default refresh interval, configure each display |
 
+**Settings → System → Frame Command Poll** decides how quickly the screens
+react. Each frame asks the server once per second, by default, whether a
+command is waiting, so **Next**, **Refresh** and now-playing artwork all land
+within about a second rather than at the end of the display interval. Raise it
+if a large fleet makes the request rate a problem — the cost is one small
+request per frame per interval, and the frames pick up a change without being
+reloaded.
+
 Each registered frame has two buttons:
 
 - **Configure** — display name, rotation (0°/90°/180°/270°), refresh interval, content mode (pool or pinned item)
