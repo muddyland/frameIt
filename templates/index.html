@@ -174,7 +174,9 @@ function renderFrames(frames) {
     var cards = frames.map(function(f) {
         var frameDiff  = f.last_seen       ? (now - new Date(f.last_seen + 'Z').getTime())       / 1000 : Infinity;
         var agentDiff  = f.agent_last_seen ? (now - new Date(f.agent_last_seen + 'Z').getTime()) / 1000 : Infinity;
-        var frameOnline = frameDiff < f.interval_seconds * 2;
+        // Frames heartbeat on their signal poll now, not just when content
+        // changes, so this no longer has to tolerate a whole display interval.
+        var frameOnline = frameDiff < frameOfflineAfter;
         var hasAgent    = !!f.agent_url;
         // Agents are considered online if they heartbeated in the last 3 minutes.
         // The agent heartbeats every 60s, so 180s gives 3× tolerance.
@@ -251,7 +253,7 @@ function renderFrames(frames) {
 
             // Meta pills
             '<div class="d-flex flex-wrap gap-3 mb-3" style="font-size:.8rem;color:#adb5bd">' +
-            pill('fa-clock',  timeSince(f.last_seen), 'Last content fetch') +
+            pill('fa-clock',  timeSince(f.last_seen), 'Last seen') +
             pill('fa-rotate', f.rotation + '°',       'Rotation') +
             pill('fa-film',   modeLabel,               'Content mode') +
             pill('fa-gauge',  f.interval_seconds + 's','Interval') +
@@ -452,9 +454,16 @@ function loadDashboard() {
 }
 
 loadDashboard();
+// Frames poll for commands on this cadence; allow a few missed polls before
+// calling one offline, with a floor for the fast default.
+var frameOfflineAfter = 60;
+
 fetch('/api/settings')
     .then(function(r) { return r.json(); })
-    .then(function(d) { setInterval(loadDashboard, (d.dashboard_refresh_seconds || 30) * 1000); })
+    .then(function(d) {
+        frameOfflineAfter = Math.max(60, (d.signal_poll_seconds || 1) * 5);
+        setInterval(loadDashboard, (d.dashboard_refresh_seconds || 30) * 1000);
+    })
     .catch(function() { setInterval(loadDashboard, 30000); });
 </script>
 {% endblock %}

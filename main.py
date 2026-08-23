@@ -246,6 +246,11 @@ def check_auth():  # pylint: disable=too-many-return-statements
 # the authentication path.
 # ---------------------------------------------------------------------------
 
+# A frame's signal poll is its heartbeat, but at a one-second cadence we do
+# not want a database write per frame per second. Refreshing last_seen at
+# most this often keeps the dashboard honest for a fraction of the writes.
+HEARTBEAT_WRITE_SECONDS = 10
+
 LOGIN_MAX_ATTEMPTS = 10
 LOGIN_WINDOW_SECONDS = 300
 LOGIN_LOCKOUT_SECONDS = 300
@@ -1132,8 +1137,22 @@ def frame_signal(frame_id):
     frame = db.get_or_404(Frame, frame_id)
     require_frame_auth(frame_id)
     cmd = frame.pending_command
+    dirty = False
     if cmd:
         frame.pending_command = None
+        dirty = True
+
+    # This poll is what actually proves a display is alive. last_seen used to
+    # move only on /next, which fires once per content change — so a frame
+    # showing a five-minute poster, or one wedged on the last frame of a
+    # video, went "offline" on the dashboard while it was still polling
+    # happily every second.
+    now = utcnow()
+    if frame.last_seen is None or (now - frame.last_seen).total_seconds() >= HEARTBEAT_WRITE_SECONDS:
+        frame.last_seen = now
+        dirty = True
+
+    if dirty:
         db.session.commit()
     return jsonify({'command': cmd})
 

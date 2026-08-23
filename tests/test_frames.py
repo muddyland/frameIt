@@ -182,3 +182,60 @@ class TestPatchFrame:
     def test_nonexistent_frame_returns_404(self, client):
         resp = client.patch('/api/frames/9999', json={'name': 'Ghost'})
         assert resp.status_code == 404
+
+
+class TestSignalHeartbeat:
+    """The signal poll is what proves a display is alive.
+
+    last_seen used to move only on /next, so a frame showing a long poster or
+    wedged on the last frame of a video looked offline while it was still
+    polling every second.
+    """
+
+    def test_signal_marks_the_frame_seen(self, client, app):
+        from models import Frame, db
+        frame_id = checkin(client)['frame_id']
+        with app.app_context():
+            db.session.get(Frame, frame_id).last_seen = None
+            db.session.commit()
+
+        client.get(f'/api/frames/{frame_id}/signal')
+
+        with app.app_context():
+            assert db.session.get(Frame, frame_id).last_seen is not None
+
+    def test_signal_refreshes_a_stale_heartbeat(self, client, app):
+        from datetime import timedelta
+        from models import Frame, db, utcnow
+        frame_id = checkin(client)['frame_id']
+        stale = utcnow() - timedelta(minutes=5)
+        with app.app_context():
+            db.session.get(Frame, frame_id).last_seen = stale
+            db.session.commit()
+
+        client.get(f'/api/frames/{frame_id}/signal')
+
+        with app.app_context():
+            assert db.session.get(Frame, frame_id).last_seen > stale
+
+    def test_rapid_polls_do_not_write_every_time(self, client, app):
+        """At a one-second cadence this would otherwise be a write per second."""
+        from models import Frame, db
+        frame_id = checkin(client)['frame_id']
+        client.get(f'/api/frames/{frame_id}/signal')
+        with app.app_context():
+            first = db.session.get(Frame, frame_id).last_seen
+
+        for _ in range(5):
+            client.get(f'/api/frames/{frame_id}/signal')
+
+        with app.app_context():
+            assert db.session.get(Frame, frame_id).last_seen == first
+
+    def test_signal_still_delivers_the_command(self, client):
+        frame_id = checkin(client)['frame_id']
+        client.post(f'/api/frames/{frame_id}/command', json={'command': 'next'},
+                    content_type='application/json')
+        body = client.get(f'/api/frames/{frame_id}/signal').get_json()
+        assert body['command'] == 'next'
+        assert client.get(f'/api/frames/{frame_id}/signal').get_json()['command'] is None
