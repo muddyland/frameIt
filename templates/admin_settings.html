@@ -226,6 +226,60 @@
     </div>
 </div>
 
+<!-- Now Playing -->
+<div class="mt-4">
+    <div class="card bg-secondary bg-opacity-10 border-secondary">
+        <div class="card-header border-secondary">
+            <h6 class="mb-0 text-white"><i class="fa-solid fa-music me-2 text-secondary"></i>Now Playing</h6>
+            <div class="small text-secondary mt-1">
+                Lets Home Assistant push album art to every frame that has
+                <strong>Show &ldquo;Now Playing&rdquo; album art</strong> switched on, from the Frames page.
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="mb-3">
+                <label class="form-label">Webhook URL</label>
+                <input type="text" class="form-control bg-dark text-white border-secondary font-monospace"
+                       id="s-np-url" readonly>
+                <div class="form-text">POST the media player state and album art here.</div>
+            </div>
+
+            <div class="mb-4">
+                <label class="form-label">Webhook Token</label>
+                <div class="input-group">
+                    <input type="text" class="form-control bg-dark text-white border-secondary font-monospace"
+                           id="s-np-token" readonly value="">
+                    <button class="btn btn-outline-secondary" type="button" id="s-np-copy"
+                            onclick="copyNowPlayingToken()" disabled>
+                        <i class="fa-solid fa-copy me-1"></i>Copy
+                    </button>
+                    <button class="btn btn-outline-warning" type="button" onclick="generateNowPlayingToken()">
+                        <i class="fa-solid fa-key me-1"></i>Generate New
+                    </button>
+                </div>
+                <div class="form-text">
+                    Shown once, at the moment it is generated, and never again — copy it into Home
+                    Assistant straight away. Generating a new one immediately stops the old one working.
+                </div>
+            </div>
+
+            <div class="mb-0">
+                <label class="form-label">Stale Playback Timeout</label>
+                <div class="input-group">
+                    <input type="number" class="form-control bg-dark text-white border-secondary"
+                           id="s-np-stale" min="10" max="3600" step="10">
+                    <span class="input-group-text bg-dark text-secondary border-secondary">seconds</span>
+                </div>
+                <div class="form-text">
+                    How long album art stays up without a fresh update before a frame goes back to its
+                    normal rotation. This is the backstop for Home Assistant going away mid-track; a
+                    normal stop reverts the frame immediately.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Apply defaults to all frames -->
 <div class="mt-4">
     <div class="card bg-secondary bg-opacity-10 border-secondary">
@@ -318,6 +372,22 @@ function loadSettings() {
                 document.getElementById('s-signal-poll').value = d.signal_poll_seconds || 1;
                 document.getElementById('s-retention').value = d.log_retention_days || '';
 
+                // Now Playing. The token itself is never returned by the API —
+                // only whether one exists — so the field shows a placeholder
+                // until this page generates a new one.
+                document.getElementById('s-np-url').value = window.location.origin + '/api/now-playing';
+                document.getElementById('s-np-stale').value = d.now_playing_stale_seconds || 120;
+                // Carried in the value rather than a placeholder: this page
+                // runs Bootstrap in light mode with bg-dark applied by hand,
+                // so placeholder text renders dark-on-dark and cannot be read.
+                var tokenEl = document.getElementById('s-np-token');
+                tokenEl.value = d.now_playing_token_set
+                    ? 'A token is set. Generate a new one if you no longer have it.'
+                    : 'No token yet. Generate one to enable the webhook.';
+                tokenEl.classList.add('text-secondary');
+                tokenEl.classList.remove('text-white');
+                document.getElementById('s-np-copy').disabled = true;
+
                 // Security
                 document.getElementById('s-strict-agent').checked = !!d.strict_agent_auth;
                 document.getElementById('s-strict-frame').checked = !!d.strict_frame_auth;
@@ -373,6 +443,7 @@ function saveSettings() {
             dashboard_refresh_seconds:   refreshVal,
             signal_poll_seconds:         signalVal,
             log_retention_days:          retentionVal,
+            now_playing_stale_seconds:   parseInt(document.getElementById('s-np-stale').value) || 120,
             strict_agent_auth:           document.getElementById('s-strict-agent').checked,
             strict_frame_auth:           document.getElementById('s-strict-frame').checked,
             allow_bypass_frames:         document.getElementById('s-allow-bypass').checked,
@@ -394,6 +465,47 @@ function applyDefaults() {
             showAlert('Defaults applied to ' + d.updated + ' frame' + (d.updated !== 1 ? 's' : '') + '.');
         })
         .catch(function() { showAlert('Failed to apply defaults.', 'danger'); });
+}
+
+// ── Now Playing token ──────────────────────────────────────────────────────
+// The server returns the raw value exactly once, on generation. Nothing here
+// stores it anywhere else — reloading the page puts the placeholder back.
+function generateNowPlayingToken() {
+    if (!confirm('Generate a new Now Playing token? Home Assistant will stop working until you paste the new one in.')) return;
+    fetch('/api/settings/now-playing-token', {method: 'POST'})
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (!d.token) { showAlert('Failed to generate token.', 'danger'); return; }
+            var el = document.getElementById('s-np-token');
+            el.value = d.token;
+            el.classList.remove('text-secondary');
+            el.classList.add('text-white');
+            document.getElementById('s-np-copy').disabled = false;
+            el.focus();
+            el.select();
+            showAlert('New token generated — copy it now, it is not shown again.', 'warning');
+        })
+        .catch(function() { showAlert('Failed to generate token.', 'danger'); });
+}
+
+function copyNowPlayingToken() {
+    // Disabled unless a token was generated in this page view — the field
+    // otherwise holds a status message, not a credential.
+    if (document.getElementById('s-np-copy').disabled) return;
+    var el = document.getElementById('s-np-token');
+    el.focus();
+    el.select();
+    var done = function() { showAlert('Token copied to clipboard.'); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(el.value).then(done).catch(function() {
+            showAlert('Could not copy — select the field and copy manually.', 'danger');
+        });
+    } else {
+        // Non-secure origins have no clipboard API, and a LAN install is
+        // usually plain http.
+        try { document.execCommand('copy'); done(); }
+        catch (e) { showAlert('Could not copy — select the field and copy manually.', 'danger'); }
+    }
 }
 
 // Shows which agents have not yet moved to their own credential, so the

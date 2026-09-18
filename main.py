@@ -27,7 +27,8 @@ from flask import (Flask, render_template, request, jsonify, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-from models import db, Poster, Trailer, Frame, FrameLog, RegistrationToken, Settings, AdminUser, utcnow
+from models import (db, Poster, Trailer, Frame, FrameLog, RegistrationToken, Settings,
+                    AdminUser, NowPlaying, utcnow)
 
 try:
     import yt_dlp as _yt_dlp
@@ -49,6 +50,11 @@ VIDEOS_DIR = os.environ.get("VIDEOS_DIR", './videos')
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(IMAGES_DIR, exist_ok=True)
 os.makedirs(VIDEOS_DIR, exist_ok=True)
+# Album art from the now-playing webhook. A subdirectory of IMAGES_DIR so the
+# existing /images/<path> route serves it — no new serving route, and no new
+# directory to remember when moving a deployment.
+NOWPLAYING_DIR = os.path.join(IMAGES_DIR, 'now_playing')
+os.makedirs(NOWPLAYING_DIR, exist_ok=True)
 os.makedirs(os.path.join(STATIC_DIR, 'dist'), exist_ok=True)
 
 MAX_UPLOAD_BYTES = int(os.environ.get('MAX_UPLOAD_MB', '16')) * 1024 * 1024
@@ -144,6 +150,7 @@ _PUBLIC_ENDPOINTS = {
     'agent_register', 'agent_heartbeat', 'agent_server_version', 'install_script',
     'serve_agent', 'serve_agent_requirements', 'send_images',
     'admin_login', 'admin_logout', 'admin_setup', 'static', 'serve_video',
+    'now_playing_webhook',
 }
 
 # State-changing endpoints that are NOT authenticated by the session cookie,
@@ -151,7 +158,7 @@ _PUBLIC_ENDPOINTS = {
 # must present one.
 _CSRF_EXEMPT = {
     'frame_checkin', 'frame_next', 'frame_signal', 'frame_display_state',
-    'agent_register', 'agent_heartbeat',
+    'agent_register', 'agent_heartbeat', 'now_playing_webhook',
 }
 
 _CSRF_SAFE_METHODS = {'GET', 'HEAD', 'OPTIONS', 'TRACE'}
@@ -306,20 +313,19 @@ def _clear_login_failures(key):
 # Response hardening
 # ---------------------------------------------------------------------------
 
-# The admin UI still loads Bootstrap and Font Awesome from public CDNs, and
-# the kiosk embeds the YouTube player, so those origins have to be allowed.
+# Bootstrap, Font Awesome and SortableJS are vendored under static/vendor, so
+# no CDN origin is allowed any more — the admin UI works with no egress at all.
+# The kiosk still embeds the YouTube player, so those origins stay.
 # 'unsafe-inline' for scripts is unavoidable while the page logic lives in
 # inline <script> blocks — porting the admin to a bundled frontend is what
 # lets this tighten to a nonce.
-_CDN_SCRIPTS = 'https://cdn.jsdelivr.net'
-_CDN_STYLES = 'https://cdn.jsdelivr.net https://cdnjs.cloudflare.com'
 _CSP = (
     "default-src 'self'; "
     "img-src 'self' data: https://img.youtube.com https://i.ytimg.com; "
     "media-src 'self' blob:; "
-    f"script-src 'self' 'unsafe-inline' {_CDN_SCRIPTS} https://www.youtube.com https://s.ytimg.com; "
-    f"style-src 'self' 'unsafe-inline' {_CDN_STYLES}; "
-    "font-src 'self' data: https://cdnjs.cloudflare.com; "
+    "script-src 'self' 'unsafe-inline' https://www.youtube.com https://s.ytimg.com; "
+    "style-src 'self' 'unsafe-inline'; "
+    "font-src 'self' data:; "
     "connect-src 'self'; "
     "frame-src https://www.youtube.com https://www.youtube-nocookie.com; "
     "frame-ancestors 'self'; "
@@ -1058,6 +1064,27 @@ def frame_next(frame_id):
     db.session.commit()
 
     settings = get_settings()
+
+    # Now-playing takes precedence over both pinned and pool content, but only
+    # as a read-time gate: nothing here records that the frame was overridden,
+    # so when the state goes idle, the update goes stale, or the toggle is
+    # switched off, the very next poll falls straight through to the code
+    # below with no state to restore.
+    if frame.show_now_playing:
+        np = db.session.get(NowPlaying, 1)
+        if now_playing_active(np, settings):
+            return jsonify({
+                'type': 'now_playing',
+                'rotation': frame.rotation,
+                'interval_seconds': frame.interval_seconds,
+                'signal_poll_seconds': settings.signal_poll_seconds,
+                'state': np.state,
+                'url': now_playing_image_url(np),
+                'title': np.title or '',
+                'artist': np.artist or '',
+                'album': np.album or '',
+            })
+
     content = None
 
     if frame.content_mode == 'pinned' and frame.pinned_type and frame.pinned_id:
@@ -1191,6 +1218,170 @@ def frame_send_command(frame_id):
     frame.pending_command = cmd
     db.session.commit()
     return jsonify({'ok': True})
+
+
+# ---------------------------------------------------------------------------
+# Now Playing
+#
+# One webhook, called by the Home Assistant integration whenever the watched
+# media player changes state. The server fans the update out to every frame
+# that has opted in, which is why the integration does not need to know how
+# many frames exist or where they are.
+# ---------------------------------------------------------------------------
+
+NOW_PLAYING_STATES = ('playing', 'paused', 'idle', 'off')
+# The states that actually take over a display. Everything else falls through
+# to the frame's normal rotation.
+NOW_PLAYING_ACTIVE_STATES = ('playing', 'paused')
+_NOW_PLAYING_EXTENSIONS = {'jpeg': 'jpg', 'png': 'png', 'webp': 'webp'}
+
+
+def get_now_playing():
+    """Return the singleton NowPlaying row, creating it idle if absent."""
+    np = db.session.get(NowPlaying, 1)
+    if np:
+        return np
+    np = NowPlaying(id=1, state='idle')
+    db.session.add(np)
+    try:
+        db.session.commit()
+    except SAIntegrityError:
+        # Another worker got there first — same race as get_settings().
+        db.session.rollback()
+        np = db.session.get(NowPlaying, 1)
+    return np
+
+
+def now_playing_credential_ok(settings):
+    """True when the request carries the configured webhook bearer token.
+
+    False when no token has been generated yet, which is what keeps the
+    endpoint inert on an upgraded install until an admin turns it on.
+    """
+    expected = settings.now_playing_webhook_token
+    if not expected:
+        return False
+    auth = request.headers.get('Authorization', '')
+    if not auth.startswith('Bearer '):
+        return False
+    return hmac.compare_digest(auth[7:], expected)
+
+
+def now_playing_active(np, settings):
+    """Whether this row should currently take over an opted-in frame.
+
+    Staleness is evaluated here, on the read path, rather than by a background
+    thread expiring rows — there is no state to unwind, so the moment an
+    update stops arriving the next poll simply falls through.
+    """
+    if np is None or not np.image_filename:
+        return False
+    if (np.state or 'idle') not in NOW_PLAYING_ACTIVE_STATES:
+        return False
+    if np.updated_at is None:
+        return False
+    max_age = settings.now_playing_stale_seconds or 120
+    return (utcnow() - np.updated_at).total_seconds() <= max_age
+
+
+def now_playing_image_url(np):
+    """The album art URL, versioned by the file's mtime.
+
+    The art is always written to the same path, so without a version query a
+    browser that has the previous track's cover cached will never fetch the
+    new one — and, worse, never fire onload, leaving the frame on stale art.
+    The mtime changes only when the image itself is replaced, so a frame
+    re-polling an unchanged track still gets a cache hit.
+    """
+    if not np.image_filename:
+        return None
+    url = f'/images/{np.image_filename}'
+    try:
+        mtime = os.path.getmtime(os.path.join(IMAGES_DIR, np.image_filename))
+    except OSError:
+        return url
+    return f'{url}?v={int(mtime * 1000)}'
+
+
+def _store_now_playing_image(file_storage):
+    """Validate and save album art, returning its path relative to IMAGES_DIR.
+
+    Raises ValueError when the bytes are not one of the formats we serve.
+    """
+    head = file_storage.stream.read(32)
+    file_storage.stream.seek(0)
+    fmt = sniff_image_format(head)
+    if fmt is None:
+        raise ValueError('not a valid image')
+    ext = _NOW_PLAYING_EXTENSIONS[fmt]
+    # Always the same name, so nothing accumulates here over a long listening
+    # session. Any previous file in a *different* format has to go too,
+    # otherwise the stale one lingers on disk forever.
+    for other in set(_NOW_PLAYING_EXTENSIONS.values()):
+        if other == ext:
+            continue
+        stale = os.path.join(NOWPLAYING_DIR, f'current.{other}')
+        if os.path.exists(stale):
+            try:
+                os.remove(stale)
+            except OSError as exc:  # pragma: no cover - permissions
+                _log.warning('[now-playing] Could not remove %s: %s', stale, exc)
+    file_storage.save(os.path.join(NOWPLAYING_DIR, f'current.{ext}'))
+    return f'now_playing/current.{ext}'
+
+
+def _signal_now_playing_frames():
+    """Ask every opted-in frame to refetch, and report how many were asked.
+
+    Including on stop: the frame reverting to its rotation should feel as
+    immediate as it taking the artwork up in the first place.
+    """
+    count = Frame.query.filter_by(show_now_playing=True).update(
+        {'pending_command': 'next'}, synchronize_session=False)
+    return count
+
+
+@app.route('/api/now-playing', methods=['POST'])
+def now_playing_webhook():
+    """Machine-to-machine: report the current media player state and art."""
+    settings = get_settings()
+    if not now_playing_credential_ok(settings):
+        return jsonify({'error': 'Invalid or missing now-playing token'}), 401
+
+    state = want_choice(request.form, 'state', NOW_PLAYING_STATES)
+
+    np = get_now_playing()
+    image_file = request.files.get('image')
+    if image_file is not None and image_file.filename:
+        try:
+            np.image_filename = _store_now_playing_image(image_file)
+        except ValueError:
+            return jsonify({'error': 'That file is not a valid JPEG, PNG, or WebP image.'}), 400
+
+    np.state = state
+    np.entity_id = want_str(request.form, 'entity_id') or None
+    np.title = want_str(request.form, 'title') or None
+    np.artist = want_str(request.form, 'artist') or None
+    np.album = want_str(request.form, 'album') or None
+    np.updated_at = utcnow()
+
+    signalled = _signal_now_playing_frames()
+    db.session.commit()
+    return jsonify({'ok': True, 'state': np.state, 'frames_signalled': signalled})
+
+
+@app.route('/api/settings/now-playing-token', methods=['POST'])
+def regenerate_now_playing_token():
+    """Mint a new webhook token and return it exactly once.
+
+    Same contract as an agent secret: the value is shown at the moment it is
+    created and never again, so a leak of the settings API is not a leak of
+    the credential. Regenerating immediately invalidates the old one.
+    """
+    settings = get_settings()
+    settings.now_playing_webhook_token = secrets.token_hex(32)
+    db.session.commit()
+    return jsonify({'token': settings.now_playing_webhook_token})
 
 
 # ---------------------------------------------------------------------------
@@ -1466,6 +1657,8 @@ def update_frame(frame_id):
         frame.pinned_type = want_choice(body, 'pinned_type', ('poster', 'trailer'), allow_empty=True)
     if 'pinned_id' in body:
         frame.pinned_id = want_int(body, 'pinned_id', minimum=1, allow_none=True)
+    if 'show_now_playing' in body:
+        frame.show_now_playing = want_bool(body, 'show_now_playing')
     db.session.commit()
     return jsonify(frame.to_dict())
 
@@ -1848,6 +2041,9 @@ def update_settings():  # pylint: disable=too-many-branches
         s.strict_frame_auth = want_bool(body, 'strict_frame_auth')
     if 'allow_bypass_frames' in body:
         s.allow_bypass_frames = want_bool(body, 'allow_bypass_frames')
+    if 'now_playing_stale_seconds' in body:
+        s.now_playing_stale_seconds = want_int(body, 'now_playing_stale_seconds',
+                                               minimum=10, maximum=3600, clamp=True)
     db.session.commit()
     return jsonify(s.to_dict())
 
@@ -2037,6 +2233,9 @@ _MIGRATIONS = [
     ('settings', 'strict_agent_auth',          'BOOLEAN NOT NULL DEFAULT 0'),
     ('settings', 'strict_frame_auth',          'BOOLEAN NOT NULL DEFAULT 0'),
     ('settings', 'allow_bypass_frames',        'BOOLEAN NOT NULL DEFAULT 0'),
+    ('frame',    'show_now_playing',           'BOOLEAN DEFAULT 0'),
+    ('settings', 'now_playing_webhook_token',  'VARCHAR(64)'),
+    ('settings', 'now_playing_stale_seconds',  'INTEGER NOT NULL DEFAULT 120'),
 ]
 
 # Indexes created after the fact on existing databases. db.create_all() only
