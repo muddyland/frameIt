@@ -313,20 +313,19 @@ def _clear_login_failures(key):
 # Response hardening
 # ---------------------------------------------------------------------------
 
-# The admin UI still loads Bootstrap and Font Awesome from public CDNs, and
-# the kiosk embeds the YouTube player, so those origins have to be allowed.
+# Bootstrap, Font Awesome and SortableJS are vendored under static/vendor, so
+# no CDN origin is allowed any more — the admin UI works with no egress at all.
+# The kiosk still embeds the YouTube player, so those origins stay.
 # 'unsafe-inline' for scripts is unavoidable while the page logic lives in
 # inline <script> blocks — porting the admin to a bundled frontend is what
 # lets this tighten to a nonce.
-_CDN_SCRIPTS = 'https://cdn.jsdelivr.net'
-_CDN_STYLES = 'https://cdn.jsdelivr.net https://cdnjs.cloudflare.com'
 _CSP = (
     "default-src 'self'; "
     "img-src 'self' data: https://img.youtube.com https://i.ytimg.com; "
     "media-src 'self' blob:; "
-    f"script-src 'self' 'unsafe-inline' {_CDN_SCRIPTS} https://www.youtube.com https://s.ytimg.com; "
-    f"style-src 'self' 'unsafe-inline' {_CDN_STYLES}; "
-    "font-src 'self' data: https://cdnjs.cloudflare.com; "
+    "script-src 'self' 'unsafe-inline' https://www.youtube.com https://s.ytimg.com; "
+    "style-src 'self' 'unsafe-inline'; "
+    "font-src 'self' data:; "
     "connect-src 'self'; "
     "frame-src https://www.youtube.com https://www.youtube-nocookie.com; "
     "frame-ancestors 'self'; "
