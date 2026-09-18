@@ -63,6 +63,41 @@ class TestMigrations:
                 db.text('PRAGMA table_info("trailer")')).fetchall()}
             assert {'download_attempts', 'last_attempt_at', 'last_error'} <= cols
 
+    def test_now_playing_columns_present(self, app):
+        """The three columns the now-playing fan-out adds to existing tables."""
+        with app.app_context():
+            frame_cols = {r[1] for r in db.session.execute(
+                db.text('PRAGMA table_info("frame")')).fetchall()}
+            assert 'show_now_playing' in frame_cols
+            settings_cols = {r[1] for r in db.session.execute(
+                db.text('PRAGMA table_info("settings")')).fetchall()}
+            assert {'now_playing_webhook_token', 'now_playing_stale_seconds'} <= settings_cols
+
+    def test_now_playing_columns_are_added_on_an_upgrade(self, app):
+        """The columns above are the upgrade path, not just create_all().
+
+        Dropping and re-adding them simulates a database created before this
+        release, which is the case _MIGRATIONS exists to cover.
+        """
+        with app.app_context():
+            db.session.execute(db.text('ALTER TABLE "frame" DROP COLUMN show_now_playing'))
+            db.session.execute(db.text('ALTER TABLE "settings" DROP COLUMN now_playing_stale_seconds'))
+            db.session.commit()
+            main_module.migrate_schema()
+            main_module.migrate_schema()   # and again, as a second worker would
+            frame_cols = {r[1] for r in db.session.execute(
+                db.text('PRAGMA table_info("frame")')).fetchall()}
+            settings_cols = {r[1] for r in db.session.execute(
+                db.text('PRAGMA table_info("settings")')).fetchall()}
+            assert 'show_now_playing' in frame_cols
+            assert 'now_playing_stale_seconds' in settings_cols
+
+    def test_now_playing_table_created(self, app):
+        """The table itself comes from create_all(), not a migration entry."""
+        with app.app_context():
+            with db.engine.connect() as conn:
+                assert main_module._table_exists(conn, 'now_playing') is True
+
     def test_migration_skips_missing_tables(self, app):
         """A partially created database must not blow up the boot path."""
         with app.app_context():

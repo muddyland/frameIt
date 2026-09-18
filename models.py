@@ -85,6 +85,9 @@ class Frame(db.Model):
     agent_last_seen = db.Column(db.DateTime, nullable=True)
     agent_version = db.Column(db.String(12), nullable=True)
     pending_command = db.Column(db.String(20), nullable=True)
+    # Opt-in to the now-playing fan-out. Off by default so an upgrade never
+    # starts hijacking a frame's rotation with album art nobody asked for.
+    show_now_playing = db.Column(db.Boolean, default=False)
     logs = db.relationship('FrameLog', backref='frame', lazy=True)
 
     def credential(self):
@@ -106,6 +109,7 @@ class Frame(db.Model):
             'agent_last_seen': self.agent_last_seen.isoformat() if self.agent_last_seen else None,
             'agent_version': self.agent_version,
             'agent_auth': 'secret' if self.agent_secret else ('legacy' if self.agent_token else None),
+            'show_now_playing': bool(self.show_now_playing),
         }
 
 
@@ -168,6 +172,14 @@ class Settings(db.Model):
     strict_agent_auth = db.Column(db.Boolean, nullable=False, default=False)
     strict_frame_auth = db.Column(db.Boolean, nullable=False, default=False)
     allow_bypass_frames = db.Column(db.Boolean, nullable=False, default=False)
+    # Now Playing. The webhook token is the shared bearer the Home Assistant
+    # integration authenticates with; like agent_secret it is generated once
+    # and shown once, never re-exposed by to_dict().
+    now_playing_webhook_token = db.Column(db.String(64), nullable=True)
+    # How long a now-playing update stays authoritative. Past this, a frame
+    # falls back to its normal rotation without waiting for an explicit stop —
+    # the case where the integration dies mid-track.
+    now_playing_stale_seconds = db.Column(db.Integer, nullable=False, default=120)
 
     def to_dict(self):
         return {
@@ -188,4 +200,36 @@ class Settings(db.Model):
             'strict_agent_auth': bool(self.strict_agent_auth),
             'strict_frame_auth': bool(self.strict_frame_auth),
             'allow_bypass_frames': bool(self.allow_bypass_frames),
+            # Only ever whether a token exists — never the value. Same
+            # contract as Frame.to_dict() and agent_secret.
+            'now_playing_token_set': bool(self.now_playing_webhook_token),
+            'now_playing_stale_seconds': self.now_playing_stale_seconds or 120,
+        }
+
+
+class NowPlaying(db.Model):
+    """Singleton now-playing state — always id=1.
+
+    Deliberately not folded into Settings: this is a machine-written row
+    updated on every media-player state change, while Settings is
+    admin-edited config that is read on nearly every request.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    state = db.Column(db.String(10), nullable=False, default='idle')  # playing/paused/idle/off
+    entity_id = db.Column(db.String(255), nullable=True)
+    title = db.Column(db.String(255), nullable=True)
+    artist = db.Column(db.String(255), nullable=True)
+    album = db.Column(db.String(255), nullable=True)
+    image_filename = db.Column(db.String(255), nullable=True)
+    updated_at = db.Column(db.DateTime, default=utcnow)
+
+    def to_dict(self):
+        return {
+            'state': self.state or 'idle',
+            'entity_id': self.entity_id,
+            'title': self.title,
+            'artist': self.artist,
+            'album': self.album,
+            'url': f'/images/{self.image_filename}' if self.image_filename else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }

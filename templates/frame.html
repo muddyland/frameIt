@@ -52,6 +52,46 @@
         }
         .poster-buf.visible { opacity: 1; }
 
+        /* Now Playing — pause mask.
+           Sits over the album art rather than replacing it: a paused track
+           should still be recognisable from across the room. */
+        #np-pause-overlay {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
+            background: rgba(0, 0, 0, 0.45);
+            opacity: 0;
+            transition: opacity 0.4s ease;
+            pointer-events: none;
+            z-index: 50;
+        }
+        #np-pause-overlay.visible { opacity: 1; }
+        .np-pause-glyph {
+            display: flex;
+            gap: 0.3em;
+            font-size: clamp(2.5rem, 10vw, 7rem);
+        }
+        .np-pause-glyph span {
+            display: block;
+            width: 0.3em;
+            height: 1em;
+            border-radius: 0.06em;
+            background: rgba(255, 255, 255, 0.92);
+            box-shadow: 0 2px 20px rgba(0, 0, 0, 0.55);
+        }
+        .np-pause-label {
+            font-size: clamp(0.85rem, 2.2vw, 1.4rem);
+            font-weight: 600;
+            letter-spacing: 0.35em;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.85);
+            text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+        }
+
         /* Trailer */
         #trailer-container {
             width: 100%;
@@ -196,6 +236,10 @@
                 <div class="es-title">No Content Configured</div>
                 <div class="es-sub">Add posters or trailers in the admin panel</div>
             </div>
+            <div id="np-pause-overlay">
+                <div class="np-pause-glyph"><span></span><span></span></div>
+                <div class="np-pause-label">Paused</div>
+            </div>
         </div>
         <div id="bottom-banner"></div>
     </div>
@@ -339,8 +383,67 @@
         }
 
         // ── Render ────────────────────────────────────────────────────
+        // ── Now Playing ───────────────────────────────────────────────
+        // Album art pushed by the server's /api/now-playing webhook. This
+        // mode polls on its own fixed cadence rather than the frame's
+        // configured interval: a frame set to rotate every ten minutes must
+        // still notice a stopped player — and revert — within seconds.
+        var NOW_PLAYING_POLL_SECONDS = 15;
+
+        function setPauseOverlay(on) {
+            var el = document.getElementById('np-pause-overlay');
+            if (!el) return;
+            if (on) el.classList.add('visible');
+            else el.classList.remove('visible');
+        }
+
+        function showNowPlaying(data) {
+            clearTimer();
+            if (ytPlayer) { try { ytPlayer.destroy(); } catch(e) {} ytPlayer = null; }
+            document.getElementById('trailer-container').style.display = 'none';
+            document.getElementById('trailer-container').innerHTML = '';
+            document.getElementById('empty-state').style.display = 'none';
+
+            document.getElementById('top-banner').textContent    = data.title || '';
+            document.getElementById('bottom-banner').textContent = data.artist || data.album || '';
+            setPauseOverlay(data.state === 'paused');
+
+            var curImg = document.getElementById('poster-img-' + _posterActive);
+            var rearm = function () {
+                nextTimer = setTimeout(fetchNext, NOW_PLAYING_POLL_SECONDS * 1000);
+            };
+
+            // The art lives at one URL, versioned by the server when it
+            // changes. Re-swapping buffers every poll for the same track
+            // would flash the crossfade once every 15 seconds, so only move
+            // when the image is genuinely different.
+            if (curImg.getAttribute('src') === data.url && curImg.classList.contains('visible')) {
+                hideLoader();
+                rearm();
+                return;
+            }
+
+            var nextId  = _posterActive === 'a' ? 'b' : 'a';
+            var nextImg = document.getElementById('poster-img-' + nextId);
+
+            nextImg.onload = function() {
+                nextImg.classList.add('visible');
+                curImg.classList.remove('visible');
+                _posterActive = nextId;
+                hideLoader();
+            };
+            // Do not fall through to fetchNext() on error the way a poster
+            // does — that would spin at the poll rate against art that is
+            // missing. Wait out the normal cadence instead.
+            nextImg.onerror = function() { hideLoader(); };
+            nextImg.src = data.url;
+
+            rearm();
+        }
+
         function showPoster(data) {
             clearTimer();
+            setPauseOverlay(false);
             if (ytPlayer) { try { ytPlayer.destroy(); } catch(e) {} ytPlayer = null; }
             document.getElementById('trailer-container').style.display = 'none';
             document.getElementById('trailer-container').innerHTML = '';
@@ -367,6 +470,7 @@
 
         function showTrailer(data) {
             clearTimer();
+            setPauseOverlay(false);
             if (ytPlayer) { try { ytPlayer.destroy(); } catch(e) {} ytPlayer = null; }
             document.getElementById('poster-img-a').classList.remove('visible');
             document.getElementById('poster-img-b').classList.remove('visible');
@@ -455,6 +559,7 @@
                     if (!wasOff && displayOff) {
                         // Display just turned off — stop content
                         clearTimer();
+                        setPauseOverlay(false);
                         if (ytPlayer) { try { ytPlayer.destroy(); } catch(e) {} ytPlayer = null; }
                         document.getElementById('trailer-container').style.display = 'none';
                         document.getElementById('trailer-container').innerHTML = '';
@@ -485,7 +590,10 @@
                         showPoster(data);
                     } else if (data.type === 'trailer') {
                         showTrailer(data);
+                    } else if (data.type === 'now_playing') {
+                        showNowPlaying(data);
                     } else {
+                        setPauseOverlay(false);
                         document.getElementById('poster-img-a').classList.remove('visible');
                         document.getElementById('poster-img-b').classList.remove('visible');
                         document.getElementById('trailer-container').style.display = 'none';
