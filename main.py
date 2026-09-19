@@ -1233,6 +1233,10 @@ NOW_PLAYING_STATES = ('playing', 'paused', 'idle', 'off')
 # The states that actually take over a display. Everything else falls through
 # to the frame's normal rotation.
 NOW_PLAYING_ACTIVE_STATES = ('playing', 'paused')
+# Explicit artwork signals on the webhook. Only 'none' exists: it means "this
+# update genuinely has no art", as distinct from an update that simply says
+# nothing about the art and must leave whatever is stored alone.
+NOW_PLAYING_ARTWORK_SIGNALS = ('none',)
 _NOW_PLAYING_EXTENSIONS = {'jpeg': 'jpg', 'png': 'png', 'webp': 'webp'}
 
 
@@ -1273,8 +1277,16 @@ def now_playing_active(np, settings):
     Staleness is evaluated here, on the read path, rather than by a background
     thread expiring rows — there is no state to unwind, so the moment an
     update stops arriving the next poll simply falls through.
+
+    Artwork is *not* required. Some sources genuinely publish none — YouTube on
+    an Apple TV is the case that forced this — and a title on its own is still
+    worth taking over the wall for; the frame draws a placeholder where the art
+    would be. A row with neither art nor a title has nothing to show, so that
+    still falls through to the frame's normal rotation.
     """
-    if np is None or not np.image_filename:
+    if np is None:
+        return False
+    if not np.image_filename and not np.title:
         return False
     if (np.state or 'idle') not in NOW_PLAYING_ACTIVE_STATES:
         return False
@@ -1330,6 +1342,22 @@ def _store_now_playing_image(file_storage):
     return f'now_playing/current.{ext}'
 
 
+def _clear_now_playing_image():
+    """Drop any stored album art, from the row and from disk.
+
+    Only ever called for an explicit ``artwork=none`` update. Leaving the file
+    behind would be a slow leak of the last thing that happened to have art,
+    and — worse — a later format change could resurrect it.
+    """
+    for ext in set(_NOW_PLAYING_EXTENSIONS.values()):
+        path = os.path.join(NOWPLAYING_DIR, f'current.{ext}')
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+            except OSError as exc:  # pragma: no cover - permissions
+                _log.warning('[now-playing] Could not remove %s: %s', path, exc)
+
+
 def _signal_now_playing_frames():
     """Ask every opted-in frame to refetch, and report how many were asked.
 
@@ -1343,12 +1371,25 @@ def _signal_now_playing_frames():
 
 @app.route('/api/now-playing', methods=['POST'])
 def now_playing_webhook():
-    """Machine-to-machine: report the current media player state and art."""
+    """Machine-to-machine: report the current media player state and art.
+
+    Artwork has three distinct meanings here, and conflating the last two is
+    what used to leave a previous track's cover hanging behind a new title:
+
+    * an ``image`` file  — this update carries new art, store it;
+    * ``artwork=none``   — this update genuinely has no art, clear what is
+      stored so nothing stale shows under the new title;
+    * neither            — say nothing about the art. Heartbeats and
+      pause/resume reposts of the *same* item take this path, so re-reporting
+      an unchanged track must never make the art blink off.
+    """
     settings = get_settings()
     if not now_playing_credential_ok(settings):
         return jsonify({'error': 'Invalid or missing now-playing token'}), 401
 
     state = want_choice(request.form, 'state', NOW_PLAYING_STATES)
+    artwork = want_choice(request.form, 'artwork', NOW_PLAYING_ARTWORK_SIGNALS,
+                          allow_empty=True)
 
     np = get_now_playing()
     image_file = request.files.get('image')
@@ -1357,6 +1398,9 @@ def now_playing_webhook():
             np.image_filename = _store_now_playing_image(image_file)
         except ValueError:
             return jsonify({'error': 'That file is not a valid JPEG, PNG, or WebP image.'}), 400
+    elif artwork == 'none':
+        _clear_now_playing_image()
+        np.image_filename = None
 
     np.state = state
     np.entity_id = want_str(request.form, 'entity_id') or None
