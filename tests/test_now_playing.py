@@ -187,13 +187,32 @@ class TestFrameOverride:
                      content_type='application/json')
         assert client.get(f'/api/frames/{frame_id}/next').get_json()['type'] == 'now_playing'
 
-    def test_no_artwork_falls_through_to_rotation(self, app, client):
+    def test_title_with_no_artwork_still_overrides_with_a_null_url(self, app, client):
+        """YouTube on an Apple TV publishes no art. The title still belongs up.
+
+        The frame draws its own placeholder for a null url, so overriding here
+        is what stops the *previous* track's cover sitting under a new title.
+        """
+        upload_poster(client)
+        frame_id = checkin(client)['frame_id']
+        set_now_playing_flag(app, frame_id)
+        token = generate_token(client)
+        post_now_playing(client, token, state='playing', image=None,
+                         title='Some Video', artwork='none')
+        body = client.get(f'/api/frames/{frame_id}/next').get_json()
+        assert body['type'] == 'now_playing'
+        assert body['title'] == 'Some Video'
+        assert body['url'] is None
+
+    def test_nothing_to_show_at_all_falls_through_to_rotation(self, app, client):
+        """No art and no title is not worth taking a frame over."""
         upload_poster(client)
         frame_id = checkin(client)['frame_id']
         set_now_playing_flag(app, frame_id)
         token = generate_token(client)
         post_now_playing(client, token, state='playing', image=None)
         assert client.get(f'/api/frames/{frame_id}/next').get_json()['type'] == 'poster'
+
 
     def test_turning_the_toggle_off_reverts_on_the_next_poll(self, app, client):
         frame_id = self._frame_with_art(app, client)
@@ -217,6 +236,78 @@ class TestFrameOverride:
         with app.app_context():
             assert FrameLog.query.filter_by(frame_id=frame_id).count() == 0
 
+
+class TestArtworkClearing:
+    """The explicit ``artwork=none`` signal, and what must *not* trigger it."""
+
+    def _opted_in_frame_with_art(self, app, client):
+        upload_poster(client)
+        frame_id = checkin(client)['frame_id']
+        set_now_playing_flag(app, frame_id)
+        token = generate_token(client)
+        post_now_playing(client, token, state='playing', title='Under Pressure')
+        return frame_id, token
+
+    def test_artwork_none_clears_the_stored_art(self, app, client):
+        frame_id, token = self._opted_in_frame_with_art(app, client)
+        post_now_playing(client, token, state='playing', image=None,
+                         title='Some Video', artwork='none')
+        with app.app_context():
+            assert db.session.get(NowPlaying, 1).image_filename is None
+        body = client.get(f'/api/frames/{frame_id}/next').get_json()
+        assert body['url'] is None
+
+    def test_artwork_none_removes_the_file_from_disk(self, app, client):
+        import os
+
+        import main as main_module
+        _frame_id, token = self._opted_in_frame_with_art(app, client)
+        assert os.path.exists(os.path.join(main_module.NOWPLAYING_DIR, 'current.jpg'))
+        post_now_playing(client, token, state='playing', image=None,
+                         title='Some Video', artwork='none')
+        assert not os.path.exists(os.path.join(main_module.NOWPLAYING_DIR, 'current.jpg'))
+
+    def test_a_repost_without_the_signal_keeps_existing_art(self, app, client):
+        """The regression this whole field exists to avoid.
+
+        A heartbeat or a pause repost of the same track carries no image — the
+        server already holds it — and no ``artwork`` field. If that were read
+        as "no art", the cover would blink off every heartbeat interval.
+        """
+        frame_id, token = self._opted_in_frame_with_art(app, client)
+        for state in ('playing', 'paused', 'playing'):
+            post_now_playing(client, token, state=state, image=None,
+                             title='Under Pressure')
+            with app.app_context():
+                assert db.session.get(NowPlaying, 1).image_filename == \
+                    'now_playing/current.jpg'
+            body = client.get(f'/api/frames/{frame_id}/next').get_json()
+            assert body['type'] == 'now_playing'
+            assert body['url'].startswith('/images/now_playing/current.jpg')
+
+    def test_new_art_after_a_clear_is_stored_again(self, app, client):
+        _frame_id, token = self._opted_in_frame_with_art(app, client)
+        post_now_playing(client, token, state='playing', image=None,
+                         title='Some Video', artwork='none')
+        post_now_playing(client, token, state='playing', title='Back With Art')
+        with app.app_context():
+            assert db.session.get(NowPlaying, 1).image_filename == \
+                'now_playing/current.jpg'
+
+    def test_an_image_wins_over_a_stray_artwork_none(self, app, client):
+        """Bytes on the wire are not ambiguous; never discard them."""
+        _frame_id, token = self._opted_in_frame_with_art(app, client)
+        post_now_playing(client, token, state='playing', title='Still Here',
+                         artwork='none')
+        with app.app_context():
+            assert db.session.get(NowPlaying, 1).image_filename == \
+                'now_playing/current.jpg'
+
+    def test_unknown_artwork_value_is_rejected(self, client):
+        token = generate_token(client)
+        resp = post_now_playing(client, token, state='playing', image=None,
+                                artwork='maybe')
+        assert resp.status_code == 400
 
 class TestFanOut:
     def test_only_opted_in_frames_are_signalled(self, app, client):

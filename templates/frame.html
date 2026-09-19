@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#000000">
     <title>FrameIT</title>
+    <!-- Vendored locally: a frame on a kiosk Pi may have no route off the LAN,
+         and the no-artwork placeholder must still draw when it doesn't. -->
+    <link rel="stylesheet" href="/static/vendor/fontawesome/css/all.min.css">
     <style>
         *, *::before, *::after { box-sizing: border-box; }
         body, html {
@@ -51,6 +54,31 @@
             pointer-events: none;
         }
         .poster-buf.visible { opacity: 1; }
+
+        /* Now Playing — no-artwork placeholder.
+           Some sources publish no cover at all (YouTube on an Apple TV is the
+           one that prompted this). The title still belongs on the wall, so the
+           art buffer gets a muted icon rather than a black hole — the same
+           fa-photo-film used on the login and setup pages, so the device reads
+           as FrameIT rather than as broken. */
+        #np-placeholder {
+            position: absolute;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background: #0b0b0b;
+        }
+        #np-placeholder.visible { display: flex; }
+        #np-placeholder i {
+            font-size: clamp(3rem, 18vh, 12rem);
+            color: #3a3a3a;
+        }
+        /* Paused with no artwork. Both the icon and the pause mask want the
+           middle of the screen, and stacked they read as one muddy shape — so
+           the icon steps aside and the pause glyph becomes the graphic. The
+           background stays, which is the part that matters: still not a void. */
+        #np-placeholder.behind-pause i { visibility: hidden; }
 
         /* Now Playing — pause mask.
            Sits over the album art rather than replacing it: a paused track
@@ -236,6 +264,9 @@
                 <div class="es-title">No Content Configured</div>
                 <div class="es-sub">Add posters or trailers in the admin panel</div>
             </div>
+            <div id="np-placeholder" aria-hidden="true">
+                <i class="fa-solid fa-photo-film"></i>
+            </div>
             <div id="np-pause-overlay">
                 <div class="np-pause-glyph"><span></span><span></span></div>
                 <div class="np-pause-label">Paused</div>
@@ -397,6 +428,15 @@
             else el.classList.remove('visible');
         }
 
+        function setNowPlayingPlaceholder(on, paused) {
+            var el = document.getElementById('np-placeholder');
+            if (!el) return;
+            if (on) el.classList.add('visible');
+            else el.classList.remove('visible');
+            if (on && paused) el.classList.add('behind-pause');
+            else el.classList.remove('behind-pause');
+        }
+
         function showNowPlaying(data) {
             clearTimer();
             if (ytPlayer) { try { ytPlayer.destroy(); } catch(e) {} ytPlayer = null; }
@@ -404,14 +444,37 @@
             document.getElementById('trailer-container').innerHTML = '';
             document.getElementById('empty-state').style.display = 'none';
 
-            document.getElementById('top-banner').textContent    = data.title || '';
-            document.getElementById('bottom-banner').textContent = data.artist || data.album || '';
+            document.getElementById('top-banner').textContent = data.title || '';
+            // Deliberately static. This used to show the source app name, but
+            // not every integration publishes one — HA's Plex media_player has
+            // no app_name at all — so the banner was simply blank on some
+            // sources. The label says what the display is doing, which is true
+            // whatever is playing and wherever it came from.
+            document.getElementById('bottom-banner').textContent = 'Now Playing';
             setPauseOverlay(data.state === 'paused');
 
             var curImg = document.getElementById('poster-img-' + _posterActive);
             var rearm = function () {
                 nextTimer = setTimeout(fetchNext, NOW_PLAYING_POLL_SECONDS * 1000);
             };
+
+            // No artwork for this item. The server sends url: null rather than
+            // leaving the previous track's cover in place, so drop both buffers
+            // and show the placeholder — a stale cover under a new title reads
+            // as the wrong thing playing, which is worse than no cover at all.
+            if (!data.url) {
+                document.getElementById('poster-img-a').classList.remove('visible');
+                document.getElementById('poster-img-b').classList.remove('visible');
+                // Cleared so the next real cover is always treated as a change,
+                // even if it is the same URL the buffer held before.
+                document.getElementById('poster-img-a').removeAttribute('src');
+                document.getElementById('poster-img-b').removeAttribute('src');
+                setNowPlayingPlaceholder(true, data.state === 'paused');
+                hideLoader();
+                rearm();
+                return;
+            }
+            setNowPlayingPlaceholder(false);
 
             // The art lives at one URL, versioned by the server when it
             // changes. Re-swapping buffers every poll for the same track
@@ -444,6 +507,7 @@
         function showPoster(data) {
             clearTimer();
             setPauseOverlay(false);
+            setNowPlayingPlaceholder(false);
             if (ytPlayer) { try { ytPlayer.destroy(); } catch(e) {} ytPlayer = null; }
             document.getElementById('trailer-container').style.display = 'none';
             document.getElementById('trailer-container').innerHTML = '';
@@ -471,6 +535,7 @@
         function showTrailer(data) {
             clearTimer();
             setPauseOverlay(false);
+            setNowPlayingPlaceholder(false);
             if (ytPlayer) { try { ytPlayer.destroy(); } catch(e) {} ytPlayer = null; }
             document.getElementById('poster-img-a').classList.remove('visible');
             document.getElementById('poster-img-b').classList.remove('visible');
@@ -560,6 +625,7 @@
                         // Display just turned off — stop content
                         clearTimer();
                         setPauseOverlay(false);
+                        setNowPlayingPlaceholder(false);
                         if (ytPlayer) { try { ytPlayer.destroy(); } catch(e) {} ytPlayer = null; }
                         document.getElementById('trailer-container').style.display = 'none';
                         document.getElementById('trailer-container').innerHTML = '';
@@ -594,6 +660,7 @@
                         showNowPlaying(data);
                     } else {
                         setPauseOverlay(false);
+                        setNowPlayingPlaceholder(false);
                         document.getElementById('poster-img-a').classList.remove('visible');
                         document.getElementById('poster-img-b').classList.remove('visible');
                         document.getElementById('trailer-container').style.display = 'none';
