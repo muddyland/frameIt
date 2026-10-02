@@ -72,9 +72,9 @@ build:
   stage: build
   tags:
     - saas-linux-small-amd64
-  image: docker:24.0.5
+  image: docker:29.8.2
   services:
-    - docker:24.0.5-dind
+    - docker:29.8.2-dind
   variables:
     DOCKER_TLS_CERTDIR: "/certs"
   before_script:
@@ -83,5 +83,9 @@ build:
   script:
     - docker version
     - echo "Building Docker image..."
-    - docker build --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME .
+    # Push a single image manifest. Docker 29 builds into the containerd image
+    # store and attaches a provenance attestation by default, which turns the
+    # push into an OCI index; the GitLab registry rejects that with "blob
+    # unknown to registry". Without attestations the push is one manifest.
+    - docker build --provenance=false --sbom=false --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME .
     - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
