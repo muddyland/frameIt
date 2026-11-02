@@ -181,13 +181,14 @@ stages have to be glibc.
 
 ```bash
 docker build \
-  --build-arg PYTHON_BUILDER_IMAGE=dhi.io/python:3.12-debian13-dev \
-  --build-arg PYTHON_RUNTIME_IMAGE=dhi.io/python:3.12-debian13 \
+  --build-arg PYTHON_BUILDER_IMAGE=dhi/python:3.12-debian13-dev \
+  --build-arg PYTHON_RUNTIME_IMAGE=dhi/python:3.12-debian13 \
   -t frameit .
 ```
 
-`dhi.io` needs a `docker login`. In CI, set `USE_DHI` to `"true"` to do the
-same; `DHI_PYTHON_IMAGE` (repository without a tag, e.g. a registry mirror)
+`dhi/python` is pulled through the registry mirror, which serves Docker
+Hardened Images under `/dhi` and authenticates for you. In CI, set `USE_DHI`
+to `"true"` to do the same; `DHI_PYTHON_IMAGE` (repository without a tag, e.g. a registry mirror)
 and `DHI_PYTHON_TAG` choose the pair. The public default is `USE_DHI: "false"`.
 
 On the hardened image `docker exec <container> sh` fails, because there is no

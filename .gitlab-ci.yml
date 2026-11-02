@@ -8,13 +8,13 @@ variables:
   # shell, no package manager) instead of python:3.12-slim. Off by default, so
   # the public mirror builds on slim. DHI_PYTHON_IMAGE is the repository
   # without a tag: the build installs into its "-dev" variant and ships the
-  # plain one. The default is Docker's own DHI registry, which needs a login;
-  # internally, set DHI_PYTHON_IMAGE as a CI/CD variable to the registry mirror
-  # instead (kept out of this file, which is mirrored public). debian13, not
+  # plain one. The default, "dhi/python", resolves through the runner's
+  # registry mirror, which serves Docker Hardened Images under /dhi and handles
+  # the authentication. debian13, not
   # alpine: ffmpeg is copied across from Debian's glibc packages, as on slim.
   # 3.12 to stay in step with .python_base below.
   USE_DHI: "false"
-  DHI_PYTHON_IMAGE: "dhi.io/python"
+  DHI_PYTHON_IMAGE: "dhi/python"
   DHI_PYTHON_TAG: "3.12-debian13"
 
 # ── Shared Python setup ────────────────────────────────────────────────────

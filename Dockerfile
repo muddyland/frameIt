@@ -5,8 +5,8 @@
 # variant with a shell, pip and apt to build in, and its runtime sibling to
 # ship. CI's USE_DHI=true does this.
 #
-#   --build-arg PYTHON_BUILDER_IMAGE=dhi.io/python:3.12-debian13-dev
-#   --build-arg PYTHON_RUNTIME_IMAGE=dhi.io/python:3.12-debian13
+#   --build-arg PYTHON_BUILDER_IMAGE=dhi/python:3.12-debian13-dev
+#   --build-arg PYTHON_RUNTIME_IMAGE=dhi/python:3.12-debian13
 #
 # Both must use the same libc, and debian13 rather than alpine: ffmpeg comes
 # from Debian's packages and is copied across as glibc binaries, the same as
