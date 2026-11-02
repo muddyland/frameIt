@@ -1,4 +1,5 @@
 # pylint: disable=too-many-lines
+import fcntl
 import hashlib
 import hmac
 import logging
@@ -2381,7 +2382,18 @@ def maintenance_command():
     print('Maintenance sweep complete.')
 
 
-with app.app_context():
+# Every gunicorn worker imports this module and runs init_database() at once.
+# On a fresh database they race: create_all() checks for each table and then
+# creates it, so a worker that loses fails with "table ... already exists",
+# and switching a new database to WAL needs a lock another worker may hold,
+# which fails with "database is locked". Either kills the worker, and with it
+# the first boot of a new install. An exclusive lock on a file beside the
+# database runs start-up one worker at a time; the rest find the work done.
+# It is not the database file itself: closing any other descriptor on that
+# file would drop SQLite's own locks in this process.
+with app.app_context(), \
+        open(os.path.join(DATA_DIR, '.startup.lock'), 'a', encoding='utf-8') as _startup_lock:
+    fcntl.flock(_startup_lock, fcntl.LOCK_EX)
     init_database()
 
 start_background_workers()

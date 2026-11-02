@@ -149,6 +149,53 @@ server {
 }
 ```
 
+### Docker
+
+The `Dockerfile` builds the server image. It runs as uid 10001 and keeps its
+data in `/frameit/config`, `/frameit/images` and `/frameit/videos` (declared as
+volumes), so a host directory mounted there must be owned by 10001. The app
+code is root-owned and read-only to the app, and the image runs with a
+read-only root filesystem as long as `/tmp` is writable:
+
+```bash
+docker build -t frameit .
+docker run -d -p 5000:5000 \
+  -v frameit-config:/frameit/config -v frameit-images:/frameit/images \
+  -v frameit-videos:/frameit/videos \
+  --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges \
+  frameit
+```
+
+The image includes ffmpeg (`/usr/bin/ffmpeg`, `/usr/bin/ffprobe`) so trailers
+cache at 720p.
+
+#### Hardened base image
+
+By default the image builds on `python:3.12-slim`. It can instead be built on
+a [Docker Hardened Image](https://docs.docker.com/dhi/), which has no shell
+and no package manager, by pointing the two base-image build args at a
+matching DHI pair (the `-dev` variant to build in, its runtime sibling to
+ship). Use the `debian13` variants: ffmpeg is installed from Debian's packages
+in the build stage and copied across with the libraries it needs, so both
+stages have to be glibc.
+
+```bash
+docker build \
+  --build-arg PYTHON_BUILDER_IMAGE=dhi/python:3.12-debian13-dev \
+  --build-arg PYTHON_RUNTIME_IMAGE=dhi/python:3.12-debian13 \
+  -t frameit .
+```
+
+`dhi/python` is pulled through the registry mirror, which serves Docker
+Hardened Images under `/dhi` and authenticates for you. In CI, set `USE_DHI`
+to `"true"` to do the same; `DHI_PYTHON_IMAGE` (repository without a tag, e.g. a registry mirror)
+and `DHI_PYTHON_TAG` choose the pair. The public default is `USE_DHI: "false"`.
+
+On the hardened image `docker exec <container> sh` fails, because there is no
+shell. Use `docker debug <container>` for an interactive shell, or run Python
+directly, e.g.
+`docker exec <container> python -c "import os; print(os.listdir('config'))"`.
+
 ---
 
 ## Pi / Client Installation

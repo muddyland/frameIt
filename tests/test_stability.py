@@ -1,5 +1,9 @@
 """Tests for the durability, migration and housekeeping behaviour."""
+import os
+import subprocess
+import sys
 from datetime import timedelta
+from pathlib import Path
 from unittest.mock import patch
 
 import main as main_module
@@ -22,6 +26,29 @@ class TestMigrations:
         with app.app_context():
             main_module.migrate_schema()
             main_module.migrate_schema()
+
+    def test_cold_start_with_several_workers(self, tmp_path):
+        """Several workers booting at once on a fresh database all come up.
+
+        Every gunicorn worker imports main and initialises the database. On a
+        fresh one they used to race ("table ... already exists", "database is
+        locked") and a loser took the whole first boot of a new install down.
+        Real processes, because the race is between processes.
+        """
+        root = Path(__file__).resolve().parent.parent
+        env = dict(os.environ,
+                   DATA_DIR=str(tmp_path / 'config'),
+                   IMAGES_DIR=str(tmp_path / 'images'),
+                   VIDEOS_DIR=str(tmp_path / 'videos'),
+                   FRAMEIT_DISABLE_WORKERS='1')
+        workers = [
+            subprocess.Popen([sys.executable, '-c', 'import main'], cwd=root, env=env,
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            for _ in range(4)
+        ]
+        outputs = [w.communicate(timeout=60)[0] for w in workers]
+        for worker, output in zip(workers, outputs):
+            assert worker.returncode == 0, output
 
     def test_indexes_exist(self, app):
         with app.app_context():

@@ -3,6 +3,20 @@ stages:
   - test
   - build
 
+variables:
+  # Set USE_DHI to "true" to build the image on a Docker Hardened Image (no
+  # shell, no package manager) instead of python:3.12-slim. Off by default, so
+  # the public mirror builds on slim. DHI_PYTHON_IMAGE is the repository
+  # without a tag: the build installs into its "-dev" variant and ships the
+  # plain one. The default, "dhi/python", resolves through the runner's
+  # registry mirror, which serves Docker Hardened Images under /dhi and handles
+  # the authentication. debian13, not
+  # alpine: ffmpeg is copied across from Debian's glibc packages, as on slim.
+  # 3.12 to stay in step with .python_base below.
+  USE_DHI: "false"
+  DHI_PYTHON_IMAGE: "dhi/python"
+  DHI_PYTHON_TAG: "3.12-debian13"
+
 # ── Shared Python setup ────────────────────────────────────────────────────
 
 .python_base:
@@ -87,5 +101,39 @@ build:
     # store and attaches a provenance attestation by default, which turns the
     # push into an OCI index; the GitLab registry rejects that with "blob
     # unknown to registry". Without attestations the push is one manifest.
-    - docker build --provenance=false --sbom=false --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME .
+    # USE_DHI swaps the builder and runtime Python images together: ffmpeg and
+    # its libraries are copied from one to the other, so the pair must match.
+    - |
+      BUILD_ARGS=""
+      # Pass the job's package index through to the build: pip reads it
+      # natively in a job container, but `docker build` does not inherit the
+      # job's environment. Unset, the Dockerfile's public default applies,
+      # which is the case on the mirror.
+      if [ -n "${PIP_INDEX_URL:-}" ]; then
+        BUILD_ARGS="$BUILD_ARGS --build-arg PIP_INDEX_URL=$PIP_INDEX_URL"
+      fi
+      if [ "$USE_DHI" = "true" ]; then
+        echo "USE_DHI=true: runtime image on ${DHI_PYTHON_IMAGE}:${DHI_PYTHON_TAG}"
+        BUILD_ARGS="$BUILD_ARGS --build-arg PYTHON_BUILDER_IMAGE=${DHI_PYTHON_IMAGE}:${DHI_PYTHON_TAG}-dev"
+        BUILD_ARGS="$BUILD_ARGS --build-arg PYTHON_RUNTIME_IMAGE=${DHI_PYTHON_IMAGE}:${DHI_PYTHON_TAG}"
+      fi
+      docker build --provenance=false --sbom=false $BUILD_ARGS \
+        --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME .
+    # Smoke test before pushing, with the hardening a deployment should use:
+    # the app answers /healthz, and ffmpeg is on PATH and runs as the app user
+    # (it is copied across by hand, so a missing library would show here).
+    # Through `python`, because the hardened image has no shell.
+    - docker run -d --name smoke --read-only --tmpfs /tmp --cap-drop ALL
+        --security-opt no-new-privileges $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
+    - |
+      ok=""
+      for i in $(seq 30); do
+        if docker exec smoke python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/healthz', timeout=4)"; then
+          ok=1; break
+        fi
+        sleep 2
+      done
+      if [ -z "$ok" ]; then docker logs smoke; exit 1; fi
+    - docker exec smoke python -c "import os, shutil, subprocess; assert os.getuid() == 10001; subprocess.run([shutil.which('ffmpeg'), '-hide_banner', '-version'], check=True)"
+    - docker rm -fv smoke
     - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
